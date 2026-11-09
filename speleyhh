@@ -1,0 +1,2641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>URAL — A Soviet Horror</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { overflow:hidden; background:#000; color:#ccc; font-family:'Courier New',monospace; user-select:none; }
+#game { display:block; width:100vw; height:100vh; }
+
+/* ---------------- HUD ---------------- */
+#hud { position:fixed; inset:0; pointer-events:none; z-index:10; }
+.bar-label { font-size:12px; letter-spacing:2px; margin-bottom:4px; text-shadow:1px 1px 2px #000; }
+.bar-bg { background:rgba(0,0,0,0.75); border:1px solid #2a2a2a; height:14px; position:relative; overflow:hidden; border-radius:2px; }
+.bar-fill { height:100%; transition:width 0.08s linear; }
+#hp-bar { position:absolute; left:20px; bottom:60px; width:240px; }
+#hp-fill { background:linear-gradient(90deg,#400,#a00,#f22); width:100%; }
+#pee-bar { position:absolute; left:20px; bottom:20px; width:340px; }
+#pee-fill { background:linear-gradient(90deg,#8a6a00,#ffdd00,#fff5a0); width:0%; }
+#level-info { position:absolute; top:20px; left:20px; font-size:14px; letter-spacing:3px; text-shadow:2px 2px 3px #000; color:#ddd; }
+#level-sub { font-size:11px; color:#888; margin-top:4px; letter-spacing:1px; }
+#crosshair { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:6px; height:6px; border-radius:50%; background:rgba(255,255,255,0.7); box-shadow:0 0 3px #000; }
+#message { position:absolute; top:28%; left:50%; transform:translate(-50%,-50%); font-size:26px; color:#c88; letter-spacing:6px; text-align:center; opacity:0; transition:opacity 0.5s; text-shadow:0 0 20px #300; }
+#message.show { opacity:1; }
+#boss-hp { position:absolute; top:36px; left:50%; transform:translateX(-50%); width:520px; display:none; }
+#boss-hp .bar-label { text-align:center; color:#c33; letter-spacing:6px; }
+#boss-hp-fill { background:linear-gradient(90deg,#300,#a00,#f00); width:100%; }
+
+/* ---------------- Overlays ---------------- */
+#damage-overlay { position:fixed; inset:0; pointer-events:none; background:radial-gradient(circle, transparent 30%, rgba(150,0,0,0.75) 100%); opacity:0; transition:opacity 0.15s; z-index:15; }
+#damage-overlay.show { opacity:1; }
+
+#flash { position:fixed; inset:0; background:#fff; opacity:0; pointer-events:none; z-index:50; }
+#flash.show { opacity:1; }
+
+#fade { position:fixed; inset:0; background:#000; opacity:0; pointer-events:none; z-index:40; transition:opacity 0.55s; }
+#fade.show { opacity:1; }
+
+#jumpscare-overlay { position:fixed; inset:0; z-index:100; display:none; background:#000; overflow:hidden; }
+#jumpscare-overlay.show { display:block; animation:shake 0.07s infinite; }
+#jumpscare-canvas { width:100%; height:100%; display:block; }
+@keyframes shake {
+0%,100% { transform:translate(0,0) scale(1.0); }
+25% { transform:translate(-10px,8px) scale(1.01); }
+50% { transform:translate(8px,-6px) scale(1.015); }
+75% { transform:translate(-6px,-10px) scale(1.005); }
+}
+
+/* ---------------- Screens ---------------- */
+#start-screen, #end-screen { position:fixed; inset:0; background:#000; z-index:200; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:20px; }
+#start-screen.hidden, #end-screen.hidden { display:none; }
+#start-screen h1 { font-size:72px; letter-spacing:16px; color:#8a1a1a; text-shadow:0 0 25px #300,0 0 60px #500; margin-bottom:10px; }
+#start-screen h2 { font-size:14px; letter-spacing:8px; color:#555; margin-bottom:44px; }
+#start-screen p { font-size:13px; line-height:2; color:#888; max-width:620px; margin-bottom:10px; letter-spacing:1px; }
+#start-screen .warn { color:#a33; margin-bottom:34px; }
+#start-screen button, #end-screen button { padding:14px 46px; background:#150303; color:#c33; border:1px solid #a22; font-family:inherit; font-size:15px; letter-spacing:5px; cursor:pointer; transition:all 0.3s; margin-top:20px; }
+#start-screen button:hover, #end-screen button:hover { background:#3a0a0a; color:#f77; box-shadow:0 0 30px #a22; }
+#end-screen h1 { font-size:64px; letter-spacing:14px; margin-bottom:20px; }
+#end-screen p { font-size:14px; color:#888; margin-bottom:10px; letter-spacing:2px; }
+
+#pause-hint { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:22px; color:#999; letter-spacing:6px; display:none; text-shadow:0 0 20px #000; }
+#hint { position:absolute; bottom:110px; left:50%; transform:translateX(-50%); font-size:12px; color:#666; letter-spacing:3px; text-align:center; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+<div id="level-info">AREA 1 / 15</div>
+<div id="level-sub">SECTION I — OUTSKIRTS</div>
+
+<div id="hp-bar" class="bar-container">
+<div class="bar-label">VITALITY — 30 / 30</div>
+<div class="bar-bg"><div id="hp-fill" class="bar-fill"></div></div>
+</div>
+
+<div id="pee-bar" class="bar-container">
+<div class="bar-label">BLADDER PRESSURE — HOLD LMB</div>
+<div class="bar-bg"><div id="pee-fill" class="bar-fill"></div></div>
+</div>
+
+<div id="boss-hp" class="bar-container">
+<div class="bar-label">THE MOTHER — 300 / 300</div>
+<div class="bar-bg"><div id="boss-hp-fill" class="bar-fill"></div></div>
+</div>
+
+<div id="crosshair"></div>
+<div id="message"></div>
+<div id="hint">WASD MOVE — SHIFT SPRINT — SPACE DODGE — LMB PEE — ESC PAUSE</div>
+</div>
+
+<div id="damage-overlay"></div>
+<div id="flash"></div>
+<div id="fade"></div>
+
+<div id="jumpscare-overlay">
+<canvas id="jumpscare-canvas"></canvas>
+</div>
+
+<div id="start-screen">
+<h1>URAL</h1>
+<h2>A SOVIET HORROR</h2>
+<p>The year is 1987. Something has gone wrong at Facility 14.<br>
+You must reach the metro station before dawn.<br>
+The only thing that keeps the things away is <span style="color:#ffdd00">your own urine</span>.</p>
+<p class="warn">Every 40 seconds, something will find you.<br>15 areas stand between you and the station.</p>
+<p style="font-size:11px;color:#555;">WASD to move · SHIFT to sprint · SPACE to dodge · HOLD LEFT MOUSE to urinate · ESC to pause</p>
+<button id="start-btn">ENTER THE ZONE</button>
+</div>
+
+<div id="end-screen" class="hidden">
+<h1 id="end-title">YOU DIED</h1>
+<p id="end-sub">The zone claims another.</p>
+<button id="restart-btn">TRY AGAIN</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =====================================================================
+URAL — A SOVIET HORROR
+---------------------------------------------------------------------
+Technical architecture:
+• Three.js WebGL renderer, PCF soft shadows, ACES filmic tone-map
+• Procedural canvas textures (no external assets)
+• 16 hand-authored level builders (15 areas + metro boss arena)
+• First-person pointer-lock controller with sprint and dodge
+• 3 hyper-detailed enemy types (pillbug, tapeworm, centipede)
+• Boss fight: 300 HP creature damaged by urination
+• Scheduled jumpscares: zombie @40s, Chucky @50s, then zombie every 40s
+===================================================================== */
+
+'use strict';
+
+/* ============================ RENDERER ============================ */
+const canvas = document.getElementById('game');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth/window.innerHeight, 0.05, 500);
+camera.rotation.order = 'YXZ';
+scene.add(camera);
+
+window.addEventListener('resize', () => {
+renderer.setSize(window.innerWidth, window.innerHeight);
+camera.aspect = window.innerWidth / window.innerHeight;
+camera.updateProjectionMatrix();
+});
+
+/* ============================ TEXTURES ============================ */
+// Small helper to build canvas textures with optional per-pixel noise.
+function makeTexture(size, draw, repeatX = 1, repeatY = 1) {
+const c = document.createElement('canvas');
+c.width = c.height = size;
+const ctx = c.getContext('2d');
+draw(ctx, size);
+const t = new THREE.CanvasTexture(c);
+t.wrapS = t.wrapT = THREE.RepeatWrapping;
+t.repeat.set(repeatX, repeatY);
+t.anisotropy = 4;
+return t;
+}
+function addNoise(ctx, s, amt) {
+const d = ctx.getImageData(0, 0, s, s), p = d.data;
+for (let i = 0; i < p.length; i += 4) {
+const n = (Math.random() - 0.5) * amt;
+p[i] = Math.max(0, Math.min(255, p[i] + n));
+p[i+1] = Math.max(0, Math.min(255, p[i+1] + n));
+p[i+2] = Math.max(0, Math.min(255, p[i+2] + n));
+}
+ctx.putImageData(d, 0, 0);
+}
+
+const TEX = {};
+
+TEX.dirt = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#2a1e12'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<5000;i++){
+ctx.fillStyle = `rgba(${40+Math.random()*50|0},${25+Math.random()*40|0},${15+Math.random()*25|0},${0.4+Math.random()*0.4})`;
+ctx.fillRect(Math.random()*s, Math.random()*s, 1+Math.random()*3, 1+Math.random()*3);
+}
+for (let i=0;i<200;i++){
+ctx.strokeStyle = `rgba(15,10,5,${0.3+Math.random()*0.5})`;
+ctx.lineWidth = 1;
+ctx.beginPath();
+const x = Math.random()*s, y = Math.random()*s;
+ctx.moveTo(x, y);
+ctx.lineTo(x + (Math.random()-0.5)*20, y + (Math.random()-0.5)*20);
+ctx.stroke();
+}
+addNoise(ctx, s, 20);
+}, 20, 20);
+
+TEX.concrete = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#5a5750'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<3000;i++){
+const v = 60+Math.random()*50|0;
+ctx.fillStyle = `rgba(${v},${v-3},${v-8},${0.3+Math.random()*0.3})`;
+ctx.fillRect(Math.random()*s, Math.random()*s, 1+Math.random()*2, 1+Math.random()*2);
+}
+// cracks
+for (let i=0;i<10;i++){
+ctx.strokeStyle = 'rgba(20,20,20,0.7)';
+ctx.lineWidth = 1;
+ctx.beginPath();
+let x = Math.random()*s, y = Math.random()*s;
+ctx.moveTo(x,y);
+for (let j=0;j<6;j++){
+x += (Math.random()-0.5)*40;
+y += (Math.random()-0.5)*40;
+ctx.lineTo(x,y);
+}
+ctx.stroke();
+}
+addNoise(ctx, s, 15);
+}, 8, 8);
+
+TEX.brick = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#3a2018'; ctx.fillRect(0,0,s,s);
+const bw = 32, bh = 16;
+for (let y=0;y<s;y+=bh){
+for (let x=0;x<s;x+=bw){
+const off = (y/bh)%2 ? bw/2 : 0;
+const shade = 60+Math.random()*40|0;
+ctx.fillStyle = `rgb(${shade+20},${shade-10},${shade-25})`;
+ctx.fillRect(x+off+1, y+1, bw-2, bh-2);
+}
+}
+addNoise(ctx, s, 25);
+}, 6, 6);
+
+TEX.wood = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#3a2412'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<s;i+=3){
+const v = 40+Math.random()*30|0;
+ctx.fillStyle = `rgba(${v+20},${v},${v-15},0.6)`;
+ctx.fillRect(0, i, s, 2);
+}
+for (let i=0;i<40;i++){
+ctx.strokeStyle = 'rgba(20,10,0,0.4)';
+ctx.lineWidth = 1;
+ctx.beginPath();
+ctx.moveTo(0, Math.random()*s);
+ctx.bezierCurveTo(s/3, Math.random()*s, 2*s/3, Math.random()*s, s, Math.random()*s);
+ctx.stroke();
+}
+addNoise(ctx, s, 12);
+}, 4, 4);
+
+TEX.metal = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#3a3a40'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<300;i++){
+ctx.fillStyle = `rgba(${30+Math.random()*60|0},${30+Math.random()*60|0},${35+Math.random()*60|0},0.4)`;
+ctx.fillRect(Math.random()*s, Math.random()*s, 1+Math.random()*8, 1+Math.random()*2);
+}
+// rust
+for (let i=0;i<200;i++){
+ctx.fillStyle = `rgba(${100+Math.random()*50|0},${40+Math.random()*30|0},${10+Math.random()*20|0},${Math.random()*0.5})`;
+ctx.beginPath();
+ctx.arc(Math.random()*s, Math.random()*s, 1+Math.random()*4, 0, Math.PI*2);
+ctx.fill();
+}
+addNoise(ctx, s, 18);
+}, 4, 4);
+
+TEX.snow = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#c8d0d8'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<4000;i++){
+const v = 180+Math.random()*60|0;
+ctx.fillStyle = `rgba(${v},${v+5},${v+10},${0.3})`;
+ctx.fillRect(Math.random()*s, Math.random()*s, 1, 1);
+}
+addNoise(ctx, s, 10);
+}, 24, 24);
+
+TEX.tile = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#b8b0a0'; ctx.fillRect(0,0,s,s);
+const t = 32;
+for (let y=0;y<s;y+=t){
+for (let x=0;x<s;x+=t){
+const v = 150+Math.random()*30|0;
+ctx.fillStyle = `rgb(${v},${v-5},${v-15})`;
+ctx.fillRect(x+1, y+1, t-2, t-2);
+}
+}
+addNoise(ctx, s, 18);
+}, 6, 6);
+
+TEX.moss = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#1e2a14'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<8000;i++){
+const g = 30+Math.random()*70|0;
+ctx.fillStyle = `rgba(${g-10},${g},${g-20},${0.5+Math.random()*0.4})`;
+ctx.fillRect(Math.random()*s, Math.random()*s, 1+Math.random()*2, 1+Math.random()*2);
+}
+addNoise(ctx, s, 12);
+}, 8, 8);
+
+TEX.water = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#0a1418'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<2000;i++){
+ctx.fillStyle = `rgba(${30+Math.random()*20|0},${60+Math.random()*30|0},${70+Math.random()*30|0},0.3)`;
+ctx.fillRect(Math.random()*s, Math.random()*s, 2+Math.random()*4, 1);
+}
+addNoise(ctx, s, 8);
+}, 8, 8);
+
+TEX.rubble = makeTexture(256, (ctx,s) => {
+ctx.fillStyle = '#2a2620'; ctx.fillRect(0,0,s,s);
+for (let i=0;i<6000;i++){
+const v = 30+Math.random()*50|0;
+ctx.fillStyle = `rgba(${v},${v-3},${v-8},0.6)`;
+ctx.fillRect(Math.random()*s, Math.random()*s, 1+Math.random()*3, 1+Math.random()*3);
+}
+addNoise(ctx, s, 25);
+}, 10, 10);
+
+/* ============================ PROP HELPERS ============================ */
+// Standard material cache so we don't rebuild shaders each level.
+function matStandard(opts) {
+return new THREE.MeshStandardMaterial(opts);
+}
+
+function box(w, h, d, mat) {
+return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+}
+function cylinder(rTop, rBot, h, segs, mat) {
+return new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, segs), mat);
+}
+
+// Reusable material factories
+const MAT = {
+dirtGround: () => matStandard({ map: TEX.dirt, color: 0x8a7a60, roughness: 0.95 }),
+concreteGround: () => matStandard({ map: TEX.concrete, color: 0x888880, roughness: 0.9 }),
+snowGround: () => matStandard({ map: TEX.snow, color: 0xffffff, roughness: 0.8 }),
+tileGround: () => matStandard({ map: TEX.tile, color: 0xb0a898, roughness: 0.85 }),
+mossGround: () => matStandard({ map: TEX.moss, color: 0x8a9070, roughness: 1.0 }),
+waterGround: () => matStandard({ map: TEX.water, color: 0x306070, roughness: 0.2, metalness: 0.1 }),
+rubbleGround: () => matStandard({ map: TEX.rubble, color: 0x807870, roughness: 1.0 }),
+brickWall: (c=0xffffff) => matStandard({ map: TEX.brick, color: c, roughness: 0.95 }),
+woodWall: (c=0xffffff) => matStandard({ map: TEX.wood, color: c, roughness: 0.9 }),
+metalWall: (c=0xffffff) => matStandard({ map: TEX.metal, color: c, roughness: 0.6, metalness: 0.7 }),
+concreteWall: (c=0xffffff) => matStandard({ map: TEX.concrete, color: c, roughness: 0.9 }),
+};
+
+/* ============================ PLAYER ============================ */
+const player = {
+pos: new THREE.Vector3(0, 1.7, 0),
+vel: new THREE.Vector3(),
+yaw: 0, pitch: 0,
+hp: 30, maxHp: 30,
+pee: 0, peeMax: 5,
+peeing: false,
+dodgeCooldown: 0, dodgeTime: 0, dodgeDir: new THREE.Vector3(),
+invuln: 0,
+hurtFlash: 0,
+bob: 0,
+};
+
+// Pee stream mesh attached to camera (invisible unless peeing)
+const peeStream = new THREE.Mesh(
+new THREE.CylinderGeometry(0.02, 0.05, 3.2, 8, 1, true),
+new THREE.MeshBasicMaterial({ color: 0xf0d040, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
+);
+peeStream.rotation.x = Math.PI / 2;
+peeStream.position.set(0.15, -0.45, -1.7);
+peeStream.visible = false;
+camera.add(peeStream);
+
+// Small point light so player can see in dark areas without losing atmosphere
+const playerLight = new THREE.PointLight(0xffd8a0, 1.2, 22, 1.6);
+playerLight.position.set(0, 0.5, 0);
+camera.add(playerLight);
+
+/* ============================ GAME STATE ============================ */
+const G = {
+running: false,
+paused: false,
+level: 0,
+levels: 15,
+inBoss: false,
+boss: null,
+elapsed: 0,
+playerDead: false,
+won: false,
+enemies: [],
+heals: [],
+obstacles: [],
+levelGroup: null,
+spawnTimer: 0,
+difficulty: 1,
+};
+
+/* Pause, damage overlay, message helpers */
+const $ = (id) => document.getElementById(id);
+function flashScreen() {
+const f = $('flash');
+f.classList.add('show');
+setTimeout(() => f.classList.remove('show'), 60);
+}
+function damageFlash() {
+const d = $('damage-overlay');
+d.classList.add('show');
+setTimeout(() => d.classList.remove('show'), 220);
+}
+function showMessage(text, ms = 1800) {
+const m = $('message');
+m.textContent = text;
+m.classList.add('show');
+setTimeout(() => m.classList.remove('show'), ms);
+}
+
+/* ============================ LEVEL BUILDER CORE ============================ */
+// Every level is ~140 x 140 with 3 thematic "sections" placed around the
+// arena. The player starts at origin and may wander to explore while the
+// bladder meter fills.
+
+function clearLevel() {
+if (!G.levelGroup) return;
+scene.remove(G.levelGroup);
+G.levelGroup.traverse((o) => {
+if (o.geometry) o.geometry.dispose();
+if (o.material) {
+if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
+else o.material.dispose();
+}
+});
+G.levelGroup = null;
+G.enemies.length = 0;
+G.heals.length = 0;
+G.obstacles.length = 0;
+}
+
+function addObstacle(x, z, w, d, h = 3) {
+G.obstacles.push({
+min: new THREE.Vector3(x - w/2, 0, z - d/2),
+max: new THREE.Vector3(x + w/2, h, z + d/2),
+});
+}
+
+// Generic ground
+function buildGround(group, mat, size = 160) {
+const g = new THREE.Mesh(new THREE.PlaneGeometry(size, size, 32, 32), mat);
+g.rotation.x = -Math.PI / 2;
+g.receiveShadow = true;
+group.add(g);
+}
+
+// Fog + lighting per level
+function applyAtmosphere(fogColor, fogDensity, ambientColor, ambientInt, sunColor, sunInt, sunDir) {
+scene.fog = new THREE.FogExp2(fogColor, fogDensity);
+scene.background = new THREE.Color(fogColor);
+
+const amb = new THREE.AmbientLight(ambientColor, ambientInt);
+scene.add(amb);
+G._ambient = amb;
+
+const sun = new THREE.DirectionalLight(sunColor, sunInt);
+sun.position.copy(sunDir || new THREE.Vector3(40, 80, 30));
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -60; sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 200;
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+G._sun = sun;
+
+// Fill light to keep dark areas readable (requirement: clear lighting)
+const fill = new THREE.HemisphereLight(0x8899aa, 0x111118, 0.55);
+scene.add(fill);
+G._fill = fill;
+}
+
+function clearAtmosphere() {
+if (G._ambient) scene.remove(G._ambient);
+if (G._sun) scene.remove(G._sun);
+if (G._fill) scene.remove(G._fill);
+}
+
+// Utility for placing a rectangular building with windows/roof
+function buildSimpleBuilding(group, x, z, w, d, h, wallMat, roofMat, windowColor = 0x110a08, lit = false) {
+const b = box(w, h, d, wallMat);
+b.position.set(x, h/2, z);
+b.castShadow = true;
+b.receiveShadow = true;
+group.add(b);
+addObstacle(x, z, w, d, h);
+
+// roof
+const roof = box(w + 0.4, 0.3, d + 0.4, roofMat);
+roof.position.set(x, h + 0.15, z);
+roof.castShadow = true;
+group.add(roof);
+
+// windows on 4 sides
+const winMat = new THREE.MeshBasicMaterial({ color: windowColor });
+const litMat = new THREE.MeshBasicMaterial({ color: 0xffcc66 });
+const ww = 0.8, wh = 1.0;
+const cols = Math.floor(w / 2);
+const rows = Math.floor((h - 1.5) / 1.8);
+for (let fy = 0; fy < rows; fy++) {
+for (let fx = 0; fx < cols; fx++) {
+const wx = x - w/2 + 1.2 + fx * (w - 2.4) / Math.max(1, cols - 1);
+const wy = 1.4 + fy * 1.8;
+const wm = (lit && Math.random() > 0.7) ? litMat : winMat;
+// front
+const win1 = new THREE.Mesh(new THREE.PlaneGeometry(ww, wh), wm);
+win1.position.set(wx, wy, z + d/2 + 0.02);
+group.add(win1);
+// back
+const win2 = win1.clone();
+win2.position.z = z - d/2 - 0.02;
+win2.rotation.y = Math.PI;
+group.add(win2);
+}
+}
+// side windows
+const dcols = Math.floor(d / 2);
+for (let fy = 0; fy < rows; fy++) {
+for (let fz = 0; fz < dcols; fz++) {
+const wz = z - d/2 + 1.2 + fz * (d - 2.4) / Math.max(1, dcols - 1);
+const wy = 1.4 + fy * 1.8;
+const wm = (lit && Math.random() > 0.7) ? litMat : winMat;
+const win1 = new THREE.Mesh(new THREE.PlaneGeometry(ww, wh), wm);
+win1.position.set(x + w/2 + 0.02, wy, wz);
+win1.rotation.y = Math.PI / 2;
+group.add(win1);
+const win2 = win1.clone();
+win2.position.x = x - w/2 - 0.02;
+win2.rotation.y = -Math.PI / 2;
+group.add(win2);
+}
+}
+}
+
+function buildTree(group, x, z, h = 6, dead = false, scale = 1) {
+const trunkMat = dead
+? matStandard({ color: 0x1a1008, roughness: 1.0 })
+: matStandard({ color: 0x3a2410, roughness: 1.0 });
+const trunk = cylinder(0.15*scale, 0.25*scale, h, 8, trunkMat);
+trunk.position.set(x, h/2, z);
+trunk.castShadow = true;
+group.add(trunk);
+addObstacle(x, z, 0.6*scale, 0.6*scale, h);
+
+if (!dead) {
+const leafMat = matStandard({ color: 0x1a2a10, roughness: 1.0 });
+for (let i = 0; i < 4; i++) {
+const leaf = new THREE.Mesh(
+new THREE.SphereGeometry((1.2 + Math.random()*0.8)*scale, 8, 6),
+leafMat
+);
+leaf.position.set(
+x + (Math.random()-0.5)*1.5*scale,
+h - 1 + Math.random()*1.5,
+z + (Math.random()-0.5)*1.5*scale
+);
+leaf.castShadow = true;
+group.add(leaf);
+}
+} else {
+// dead branches
+const branchMat = matStandard({ color: 0x100804, roughness: 1.0 });
+for (let i = 0; i < 5; i++) {
+const br = cylinder(0.03*scale, 0.08*scale, (1 + Math.random()*1.5)*scale, 5, branchMat);
+const ang = Math.random() * Math.PI * 2;
+br.position.set(x + Math.cos(ang)*0.4*scale, h*0.5 + Math.random()*h*0.35, z + Math.sin(ang)*0.4*scale);
+br.rotation.z = Math.cos(ang) * 0.8;
+br.rotation.x = Math.sin(ang) * 0.8;
+br.castShadow = true;
+group.add(br);
+}
+}
+}
+
+function buildCrate(group, x, z, size = 1.2, matOverride = null) {
+const m = matOverride || matStandard({ map: TEX.wood, color: 0x8a6a40, roughness: 0.9 });
+const c = box(size, size, size, m);
+c.position.set(x, size/2, z);
+c.rotation.y = Math.random() * Math.PI;
+c.castShadow = true;
+c.receiveShadow = true;
+group.add(c);
+addObstacle(x, z, size, size, size);
+}
+
+function buildBarrel(group, x, z, color = 0x3a2a1a) {
+const m = matStandard({ map: TEX.metal, color, roughness: 0.7, metalness: 0.4 });
+const b = cylinder(0.4, 0.4, 1.0, 14, m);
+b.position.set(x, 0.5, z);
+b.castShadow = true;
+b.receiveShadow = true;
+group.add(b);
+addObstacle(x, z, 0.8, 0.8, 1.0);
+}
+
+function buildLampPost(group, x, z, color = 0xffddaa, intensity = 1.2) {
+const poleMat = matStandard({ color: 0x101010, roughness: 0.6, metalness: 0.7 });
+const pole = cylinder(0.06, 0.08, 5, 8, poleMat);
+pole.position.set(x, 2.5, z);
+pole.castShadow = true;
+group.add(pole);
+const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), new THREE.MeshBasicMaterial({ color }));
+head.position.set(x, 5.1, z);
+group.add(head);
+const light = new THREE.PointLight(color, intensity, 16, 1.7);
+light.position.set(x, 5.0, z);
+light.castShadow = false;
+group.add(light);
+addObstacle(x, z, 0.3, 0.3, 5);
+}
+
+function buildRubble(group, x, z, spread = 3, count = 8) {
+const rubbleMat = matStandard({ map: TEX.rubble, color: 0x504840, roughness: 1.0 });
+for (let i = 0; i < count; i++) {
+const r = box(
+0.2 + Math.random()*0.6,
+0.1 + Math.random()*0.4,
+0.2 + Math.random()*0.6,
+rubbleMat
+);
+r.position.set(x + (Math.random()-0.5)*spread, 0.2, z + (Math.random()-0.5)*spread);
+r.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
+r.castShadow = true;
+group.add(r);
+}
+}
+
+function buildPipeRun(group, x1, z1, x2, z2, y = 3, color = 0x8a3a1a) {
+const dx = x2 - x1, dz = z2 - z1;
+const len = Math.hypot(dx, dz);
+const m = matStandard({ map: TEX.metal, color, roughness: 0.5, metalness: 0.8 });
+const pipe = cylinder(0.15, 0.15, len, 10, m);
+pipe.position.set((x1+x2)/2, y, (z1+z2)/2);
+pipe.rotation.z = Math.PI/2;
+pipe.rotation.y = Math.atan2(dz, dx);
+pipe.castShadow = true;
+group.add(pipe);
+// supports
+for (let t = 0.2; t <= 0.8; t += 0.4) {
+const px = x1 + dx*t, pz = z1 + dz*t;
+const s = cylinder(0.06, 0.06, y, 6, m);
+s.position.set(px, y/2, pz);
+group.add(s);
+}
+}
+
+/* ============================ LEVEL BUILDERS ============================ */
+
+/* AREA 1 — ABANDONED VILLAGE */
+function level_Village() {
+applyAtmosphere(0x140e0a, 0.035, 0x404050, 0.75, 0x8899aa, 0.5, new THREE.Vector3(-30, 60, -20));
+const g = new THREE.Group();
+buildGround(g, MAT.dirtGround());
+const wallMat = MAT.woodWall(0xa08060);
+const roofMat = matStandard({ color: 0x2a1a0a, roughness: 1.0 });
+// Section I — start: village outskirts
+buildSimpleBuilding(g, -20, -18, 8, 8, 5, wallMat, roofMat, 0x0a0504, false);
+buildSimpleBuilding(g, 18, -14, 10, 8, 6, wallMat, roofMat, 0x0a0504, true);
+buildSimpleBuilding(g, -22, 12, 9, 9, 5, wallMat, roofMat, 0x0a0504, false);
+// fences
+for (let i = -30; i <= 30; i += 2) {
+const post = box(0.15, 1.2, 0.15, matStandard({ color: 0x2a1a08, roughness: 1 }));
+post.position.set(i, 0.6, -30);
+post.castShadow = true;
+g.add(post);
+}
+// Section II — middle: village square
+buildSimpleBuilding(g, 0, 0, 12, 12, 8, wallMat, roofMat, 0x0a0504, true); // church-ish
+buildSimpleBuilding(g, 30, 5, 7, 7, 4, wallMat, roofMat, 0x0a0504, false);
+buildSimpleBuilding(g, -32, -5, 6, 8, 5, wallMat, roofMat, 0x0a0504, false);
+for (let i = 0; i < 8; i++) buildBarrel(g, 12 + Math.random()*20, 8 + Math.random()*15, 0x2a2a2a);
+for (let i = 0; i < 6; i++) buildCrate(g, -10 + Math.random()*20, 15 + Math.random()*10);
+buildLampPost(g, -15, -25, 0xffaa66, 1.4);
+buildLampPost(g, 15, -25, 0xffaa66, 1.4);
+// Section III — final: cemetery
+for (let i = 0; i < 20; i++) {
+const cx = -40 + Math.random()*80;
+const cz = 30 + Math.random()*30;
+const m = matStandard({ color: 0x606060, roughness: 0.9 });
+const grave = box(0.6, 1.0 + Math.random()*0.4, 0.15, m);
+grave.position.set(cx, 0.6, cz);
+grave.rotation.y = (Math.random()-0.5)*0.3;
+grave.castShadow = true;
+g.add(grave);
+addObstacle(cx, cz, 0.6, 0.15, 1.2);
+}
+for (let i = 0; i < 12; i++) buildTree(g, -55 + Math.random()*110, -55 + Math.random()*110, 5 + Math.random()*3, true, 0.8);
+// Well
+buildBarrel(g, 0, 5, 0x1a1a1a);
+buildLampPost(g, 30, 30, 0xff8844, 1.2);
+return g;
+}
+
+/* AREA 2 — INDUSTRIAL YARD */
+function level_Industrial() {
+applyAtmosphere(0x0e0c10, 0.030, 0x556677, 0.85, 0x8899cc, 0.55, new THREE.Vector3(40, 70, 20));
+const g = new THREE.Group();
+buildGround(g, MAT.concreteGround());
+const wallMat = MAT.metalWall(0x707880);
+const roofMat = matStandard({ color: 0x2a3038, roughness: 0.7, metalness: 0.5 });
+// Section I — pipes and tanks
+for (let i = 0; i < 6; i++) {
+const t = cylinder(2.4, 2.4, 6, 16, matStandard({ map: TEX.metal, color: 0x5a6070, roughness: 0.4, metalness: 0.9 }));
+t.position.set(-30 + i*12, 3, -35);
+t.castShadow = true;
+g.add(t);
+addObstacle(-30 + i*12, -35, 5, 5, 6);
+}
+buildPipeRun(g, -40, -20, 40, -20, 4, 0x8a3a1a);
+buildPipeRun(g, -40, -15, 40, -15, 3.5, 0x1a5a8a);
+// Section II — warehouses
+buildSimpleBuilding(g, -20, 0, 14, 10, 7, wallMat, roofMat, 0x0a0504, false);
+buildSimpleBuilding(g, 22, -2, 12, 12, 8, wallMat, roofMat, 0x0a0504, true);
+buildSimpleBuilding(g, 0, 20, 10, 10, 6, wallMat, roofMat, 0x0a0504, false);
+for (let i = 0; i < 14; i++) buildBarrel(g, -40 + Math.random()*80, -10 + Math.random()*30, [0x8a2a1a, 0x2a5a2a, 0x5a5a2a][i%3]);
+for (let i = 0; i < 10; i++) buildCrate(g, -40 + Math.random()*80, 5 + Math.random()*30, 1 + Math.random()*0.6);
+// Section III — crane and scrap
+const craneBase = box(3, 8, 3, matStandard({ map: TEX.metal, color: 0x606060, metalness: 0.8, roughness: 0.4 }));
+craneBase.position.set(-25, 4, 35);
+craneBase.castShadow = true;
+g.add(craneBase);
+addObstacle(-25, 35, 3, 3, 8);
+const craneArm = box(0.4, 0.4, 20, matStandard({ map: TEX.metal, color: 0x6a3030, metalness: 0.8 }));
+craneArm.position.set(-25, 8.2, 25);
+craneArm.castShadow = true;
+g.add(craneArm);
+buildLampPost(g, -35, -30, 0xffaa66, 1.6);
+buildLampPost(g, 35, -30, 0xffaa66, 1.6);
+buildLampPost(g, 35, 25, 0xffaa66, 1.6);
+buildRubble(g, 30, 20, 6, 15);
+buildRubble(g, -25, 20, 8, 20);
+return g;
+}
+
+/* AREA 3 — FROZEN WASTELAND */
+function level_Frozen() {
+applyAtmosphere(0x1a2028, 0.040, 0x8899bb, 0.95, 0xaaccff, 0.6, new THREE.Vector3(30, 80, -30));
+const g = new THREE.Group();
+buildGround(g, MAT.snowGround());
+// ice blocks
+const iceMat = matStandard({ color: 0x88b8d8, transparent: true, opacity: 0.7, roughness: 0.2, metalness: 0.1 });
+for (let i = 0; i < 25; i++) {
+const r = 0.8 + Math.random()*1.6;
+const ice = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), iceMat);
+ice.position.set(-55 + Math.random()*110, r*0.5, -55 + Math.random()*110);
+ice.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
+ice.castShadow = true;
+g.add(ice);
+addObstacle(ice.position.x, ice.position.z, r*1.5, r*1.5, r*2);
+}
+// dead trees
+for (let i = 0; i < 25; i++) buildTree(g, -60 + Math.random()*120, -60 + Math.random()*120, 4 + Math.random()*4, true, 0.9);
+// frozen hut
+buildSimpleBuilding(g, 0, 0, 10, 10, 5, MAT.woodWall(0x9a8878), matStandard({ color: 0xffffff, roughness: 0.8 }), 0x0a0808, false);
+buildSimpleBuilding(g, -25, 20, 8, 8, 4, MAT.woodWall(0x9a8878), matStandard({ color: 0xffffff }), 0x0a0808, false);
+// wrecked vehicle
+const v = box(2, 1.2, 4.5, matStandard({ color: 0x4a5050, roughness: 0.9, metalness: 0.3 }));
+v.position.set(30, 0.9, 20);
+v.rotation.y = 0.4;
+v.castShadow = true;
+g.add(v);
+addObstacle(30, 20, 2, 4.5, 1.2);
+buildLampPost(g, -20, -30, 0x99bbee, 1.0);
+buildLampPost(g, 20, 30, 0x99bbee, 1.0);
+return g;
+}
+
+/* AREA 4 — SEWER TUNNELS */
+function level_Sewer() {
+applyAtmosphere(0x0a0e0a, 0.055, 0x405040, 0.85, 0x889988, 0.25, new THREE.Vector3(0, 60, 0));
+const g = new THREE.Group();
+buildGround(g, MAT.mossGround());
+const wallMat = MAT.concreteWall(0x6a7a6a);
+// Long tunnel walls (corridor)
+for (let s = -1; s <= 1; s += 2) {
+const wall = box(2, 6, 120, wallMat);
+wall.position.set(s * 25, 3, 0);
+wall.castShadow = true;
+wall.receiveShadow = true;
+g.add(wall);
+addObstacle(s * 25, 0, 2, 120, 6);
+}
+// pipes overhead
+for (let i = -40; i <= 40; i += 8) {
+const p = cylinder(0.4, 0.4, 6, 12, matStandard({ map: TEX.metal, color: 0x606060, metalness: 0.7, roughness: 0.5 }));
+p.position.set(0, 5.5, i);
+p.rotation.z = Math.PI/2;
+p.castShadow = true;
+g.add(p);
+}
+// grates
+const grateMat = matStandard({ color: 0x1a1a1a, metalness: 0.8, roughness: 0.4 });
+for (let i = 0; i < 12; i++) {
+const grate = new THREE.Mesh(new THREE.CircleGeometry(1.5, 12), grateMat);
+grate.rotation.x = -Math.PI/2;
+grate.position.set(-40 + Math.random()*80, 0.02, -50 + Math.random()*100);
+g.add(grate);
+}
+// sludge pools
+const sludgeMat = matStandard({ color: 0x3a4a2a, roughness: 0.3, metalness: 0.1 });
+for (let i = 0; i < 8; i++) {
+const pool = new THREE.Mesh(new THREE.CircleGeometry(1.5 + Math.random()*2, 16), sludgeMat);
+pool.rotation.x = -Math.PI/2;
+pool.position.set(-40 + Math.random()*80, 0.01, -50 + Math.random()*100);
+g.add(pool);
+}
+// support beams
+for (let i = -50; i <= 50; i += 15) {
+const beam = box(50, 0.4, 0.4, matStandard({ color: 0x3a3a3a, metalness: 0.6, roughness: 0.6 }));
+beam.position.set(0, 5.8, i);
+g.add(beam);
+}
+buildLampPost(g, -22, -40, 0xaaffaa, 0.8);
+buildLampPost(g, 22, -20, 0xaaffaa, 0.8);
+buildLampPost(g, -22, 20, 0xaaffaa, 0.8);
+buildLampPost(g, 22, 40, 0xaaffaa, 0.8);
+return g;
+}
+
+/* AREA 5 — DEAD FOREST */
+function level_DeadForest() {
+applyAtmosphere(0x0c0e0a, 0.045, 0x405030, 0.8, 0x667755, 0.35, new THREE.Vector3(20, 70, 20));
+const g = new THREE.Group();
+buildGround(g, MAT.mossGround());
+for (let i = 0; i < 90; i++) {
+buildTree(g, -70 + Math.random()*140, -70 + Math.random()*140, 5 + Math.random()*5, true, 0.7 + Math.random()*0.6);
+}
+for (let i = 0; i < 30; i++) buildTree(g, -70 + Math.random()*140, -70 + Math.random()*140, 4 + Math.random()*3, false, 0.9);
+// mushrooms (toxic)
+const mushMat = matStandard({ color: 0x8a2a5a, roughness: 0.7, emissive: 0x3a0a1a, emissiveIntensity: 0.3 });
+for (let i = 0; i < 30; i++) {
+const m = new THREE.Mesh(new THREE.SphereGeometry(0.3 + Math.random()*0.2, 8, 6), mushMat);
+m.position.set(-50 + Math.random()*100, 0.3, -50 + Math.random()*100);
+m.castShadow = true;
+g.add(m);
+}
+// small cabin
+buildSimpleBuilding(g, 30, -30, 8, 8, 4.5, MAT.woodWall(0x5a4030), matStandard({ color: 0x1a1008 }), 0x0a0504, true);
+// totems
+const totemMat = matStandard({ map: TEX.wood, color: 0x4a3020, roughness: 1.0 });
+for (let i = 0; i < 5; i++) {
+const t = cylinder(0.6, 0.8, 4, 8, totemMat);
+t.position.set(-40 + i*20, 2, 40 + Math.random()*20);
+t.castShadow = true;
+g.add(t);
+addObstacle(t.position.x, t.position.z, 1.2, 1.2, 4);
+}
+buildLampPost(g, -20, 0, 0xffaa44, 1.0);
+buildLampPost(g, 20, 0, 0xffaa44, 1.0);
+return g;
+}
+
+/* AREA 6 — WAREHOUSE INTERIOR */
+function level_Warehouse() {
+applyAtmosphere(0x0a0a0c, 0.020, 0x55606a, 0.85, 0x8899aa, 0.4, new THREE.Vector3(0, 70, 0));
+const g = new THREE.Group();
+buildGround(g, MAT.concreteGround());
+const wallMat = MAT.metalWall(0x606870);
+// outer walls (enclosure)
+for (let s = -1; s <= 1; s += 2) {
+const w1 = box(2, 10, 120, wallMat);
+w1.position.set(s * 45, 5, 0);
+w1.receiveShadow = true; w1.castShadow = true;
+g.add(w1);
+addObstacle(s * 45, 0, 2, 120, 10);
+const w2 = box(120, 10, 2, wallMat);
+w2.position.set(0, 5, s * 45);
+w2.receiveShadow = true;
+g.add(w2);
+addObstacle(0, s * 45, 120, 2, 10);
+}
+// ceiling
+const ceil = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), matStandard({ color: 0x2a2a30, roughness: 0.9 }));
+ceil.rotation.x = Math.PI/2;
+ceil.position.y = 10;
+g.add(ceil);
+// racking/shelves
+for (let s = 0; s < 6; s++) {
+const sx = -30 + s * 12;
+for (let r = 0; r < 4; r++) {
+const shelf = box(8, 0.2, 2, matStandard({ color: 0x4a4a4a, metalness: 0.7, roughness: 0.5 }));
+shelf.position.set(sx, 1 + r * 1.5, -20);
+shelf.castShadow = true;
+g.add(shelf);
+}
+addObstacle(sx, -20, 8, 2, 6);
+}
+// crates
+for (let i = 0; i < 40; i++) {
+buildCrate(g, -40 + Math.random()*80, 5 + Math.random()*35, 1 + Math.random()*0.8);
+}
+// barrels
+for (let i = 0; i < 15; i++) buildBarrel(g, -40 + Math.random()*80, -35 + Math.random()*20, 0x8a2a1a);
+// forklift
+const fk = box(2, 1.6, 3, matStandard({ color: 0xaa8830, roughness: 0.6, metalness: 0.4 }));
+fk.position.set(-15, 0.8, 20);
+fk.castShadow = true;
+g.add(fk);
+addObstacle(-15, 20, 2, 3, 1.6);
+buildLampPost(g, 0, 0, 0xccccaa, 2.0);
+buildLampPost(g, -25, -25, 0xccccaa, 1.4);
+buildLampPost(g, 25, -25, 0xccccaa, 1.4);
+buildLampPost(g, 0, 25, 0xccccaa, 1.4);
+return g;
+}
+
+/* AREA 7 — HOSPITAL */
+function level_Hospital() {
+applyAtmosphere(0x0a1210, 0.040, 0x668878, 0.9, 0x88bbaa, 0.35, new THREE.Vector3(0, 70, 0));
+const g = new THREE.Group();
+buildGround(g, MAT.tileGround());
+const wallMat = matStandard({ color: 0x8a9a90, roughness: 0.7 });
+// Corridors with rooms
+for (let i = -40; i <= 40; i += 20) {
+for (let s = -1; s <= 1; s += 2) {
+const room = box(15, 6, 15, wallMat);
+room.position.set(i, 3, s * 20);
+room.receiveShadow = true;
+room.castShadow = true;
+g.add(room);
+addObstacle(i, s * 20, 15, 15, 6);
+}
+}
+// beds
+const bedMat = matStandard({ color: 0xc8c8c0, roughness: 0.9 });
+const bedLegMat = matStandard({ color: 0x4a4a4a, metalness: 0.8, roughness: 0.4 });
+for (let i = 0; i < 15; i++) {
+const bx = -40 + Math.random()*80;
+const bz = -40 + Math.random()*80;
+const bed = box(2, 0.2, 3.5, bedMat);
+bed.position.set(bx, 0.5, bz);
+bed.castShadow = true;
+g.add(bed);
+for (let lx = -1; lx <= 1; lx += 2) for (let lz = -1; lz <= 1; lz += 2) {
+const leg = cylinder(0.05, 0.05, 0.5, 6, bedLegMat);
+leg.position.set(bx + lx*0.8, 0.25, bz + lz*1.4);
+g.add(leg);
+}
+addObstacle(bx, bz, 2, 3.5, 0.7);
+}
+// wheelchairs (stylized)
+for (let i = 0; i < 8; i++) {
+const wx = -40 + Math.random()*80, wz = -40 + Math.random()*80;
+const wc = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.06, 6, 12), bedLegMat);
+wc.rotation.x = Math.PI/2;
+wc.position.set(wx, 0.4, wz);
+g.add(wc);
+}
+buildLampPost(g, -30, -30, 0xaaffcc, 1.6);
+buildLampPost(g, 30, -30, 0xaaffcc, 1.6);
+buildLampPost(g, -30, 30, 0xaaffcc, 1.6);
+buildLampPost(g, 30, 30, 0xaaffcc, 1.6);
+buildLampPost(g, 0, 0, 0xaaffcc, 2.2);
+return g;
+}
+
+/* AREA 8 — SCHOOL */
+function level_School() {
+applyAtmosphere(0x0e0a0a, 0.040, 0x806060, 0.9, 0xaa8888, 0.35, new THREE.Vector3(0, 70, 0));
+const g = new THREE.Group();
+buildGround(g, matStandard({ map: TEX.tile, color: 0x8a7060, roughness: 0.9 }));
+const wallMat = MAT.brickWall(0x8a6a50);
+// Main building interior
+for (let i = -40; i <= 40; i += 20) {
+const wall = box(2, 5, 80, wallMat);
+wall.position.set(i, 2.5, 0);
+wall.castShadow = true;
+g.add(wall);
+addObstacle(i, 0, 2, 80, 5);
+}
+// desks
+const deskMat = matStandard({ map: TEX.wood, color: 0x8a6a40, roughness: 0.9 });
+for (let i = 0; i < 25; i++) {
+const dx = -35 + Math.random()*70;
+const dz = -35 + Math.random()*70;
+const desk = box(1.2, 0.06, 0.8, deskMat);
+desk.position.set(dx, 0.75, dz);
+desk.castShadow = true;
+g.add(desk);
+for (let lx = -1; lx <= 1; lx += 2) for (let lz = -1; lz <= 1; lz += 2) {
+const leg = cylinder(0.03, 0.03, 0.7, 5, matStandard({ color: 0x4a3a20 }));
+leg.position.set(dx + lx*0.5, 0.35, dz + lz*0.35);
+g.add(leg);
+}
+const chair = box(0.5, 0.05, 0.5, deskMat);
+chair.position.set(dx, 0.5, dz + 0.6);
+g.add(chair);
+addObstacle(dx, dz, 1.2, 0.8, 0.8);
+}
+// lockers
+const lockerMat = matStandard({ color: 0x6a4a3a, metalness: 0.5, roughness: 0.6 });
+for (let i = -35; i <= 35; i += 4) {
+const l = box(1, 3, 0.6, lockerMat);
+l.position.set(i, 1.5, -15);
+l.castShadow = true;
+g.add(l);
+}
+addObstacle(0, -15, 80, 0.6, 3);
+// blackboards
+for (let i = 0; i < 5; i++) {
+const bb = box(4, 2, 0.1, matStandard({ color: 0x0a1a0a, roughness: 0.95 }));
+bb.position.set(-30 + i*15, 2.2, 15);
+g.add(bb);
+}
+buildLampPost(g, 0, 0, 0xffddaa, 1.8);
+buildLampPost(g, -30, 0, 0xffddaa, 1.4);
+buildLampPost(g, 30, 0, 0xffddaa, 1.4);
+return g;
+}
+
+/* AREA 9 — CONSTRUCTION SITE */
+function level_Construction() {
+applyAtmosphere(0x100c08, 0.035, 0x706050, 0.85, 0x998877, 0.55, new THREE.Vector3(20, 80, 20));
+const g = new THREE.Group();
+buildGround(g, MAT.rubbleGround());
+// Scaffolding
+const scafMat = matStandard({ map: TEX.metal, color: 0x8a7a4a, metalness: 0.7, roughness: 0.5 });
+for (let i = 0; i < 6; i++) {
+const sx = -30 + i * 12;
+for (let y = 1; y <= 8; y += 2) {
+const bar = box(10, 0.1, 0.1, scafMat);
+bar.position.set(sx, y, -20);
+g.add(bar);
+}
+for (let x = -5; x <= 5; x += 5) {
+const post = box(0.1, 8, 0.1, scafMat);
+post.position.set(sx + x, 4, -20);
+g.add(post);
+}
+}
+addObstacle(0, -20, 80, 1, 8);
+// Half-built structures
+for (let i = 0; i < 6; i++) {
+const w = 6 + Math.random()*6;
+const h = 3 + Math.random()*4;
+const b = box(w, h, w, matStandard({ map: TEX.brick, color: 0x8a6a5a, roughness: 0.9 }));
+b.position.set(-40 + i*15, h/2, 20 + (i%2)*8);
+b.castShadow = true; b.receiveShadow = true;
+g.add(b);
+addObstacle(-40 + i*15, 20 + (i%2)*8, w, w, h);
+}
+// Rebar piles
+const rebMat = matStandard({ color: 0x6a2a1a, metalness: 0.8, roughness: 0.4 });
+for (let i = 0; i < 30; i++) {
+const r = cylinder(0.03, 0.03, 2 + Math.random()*2, 4, rebMat);
+r.position.set(-40 + Math.random()*80, 0.1, -40 + Math.random()*80);
+r.rotation.set(Math.random()*2, Math.random()*3, Math.random()*2);
+g.add(r);
+}
+for (let i = 0; i < 20; i++) buildRubble(g, -40 + Math.random()*80, -40 + Math.random()*80, 2, 5);
+// Cement mixer
+const mixer = cylinder(1, 1, 2, 12, matStandard({ color: 0x8a8030, metalness: 0.5, roughness: 0.7 }));
+mixer.position.set(20, 1.5, 5);
+mixer.rotation.z = 0.3;
+mixer.castShadow = true;
+g.add(mixer);
+addObstacle(20, 5, 2, 2, 3);
+buildLampPost(g, -35, -30, 0xffbb66, 1.6);
+buildLampPost(g, 35, -30, 0xffbb66, 1.6);
+buildLampPost(g, 0, 40, 0xffbb66, 1.6);
+return g;
+}
+
+/* AREA 10 — ABANDONED CHURCH */
+function level_Church() {
+applyAtmosphere(0x0a0806, 0.045, 0x605040, 0.85, 0x998855, 0.3, new THREE.Vector3(0, 80, 0));
+const g = new THREE.Group();
+buildGround(g, matStandard({ map: TEX.tile, color: 0x8a6a50, roughness: 0.9 }));
+const wallMat = MAT.brickWall(0x7a5a40);
+// Nave walls
+for (let s = -1; s <= 1; s += 2) {
+const w = box(2, 12, 90, wallMat);
+w.position.set(s * 15, 6, 0);
+w.receiveShadow = true; w.castShadow = true;
+g.add(w);
+addObstacle(s * 15, 0, 2, 90, 12);
+}
+// ceiling
+const ceil = new THREE.Mesh(new THREE.PlaneGeometry(30, 90), matStandard({ color: 0x1a1008, roughness: 1.0 }));
+ceil.rotation.x = Math.PI/2;
+ceil.position.y = 12;
+g.add(ceil);
+// Pews
+const pewMat = matStandard({ map: TEX.wood, color: 0x5a3a20, roughness: 0.9 });
+for (let i = 0; i < 20; i++) {
+const z = -35 + i * 3.5;
+const pew = box(10, 0.9, 0.5, pewMat);
+pew.position.set(0, 0.45, z);
+pew.castShadow = true;
+g.add(pew);
+addObstacle(0, z, 10, 0.5, 0.9);
+}
+// Altar
+const altar = box(4, 1.2, 2, matStandard({ map: TEX.wood, color: 0x3a2010 }));
+altar.position.set(0, 0.6, 40);
+altar.castShadow = true;
+g.add(altar);
+addObstacle(0, 40, 4, 2, 1.2);
+// Candles (glowing)
+const candleMat = matStandard({ color: 0xf0e0c0, emissive: 0xffaa44, emissiveIntensity: 0.6 });
+for (let i = 0; i < 30; i++) {
+const c = cylinder(0.04, 0.05, 0.3, 6, candleMat);
+c.position.set(-8 + Math.random()*16, 1.4, 40 + (Math.random()-0.5)*2);
+g.add(c);
+}
+const altarLight = new THREE.PointLight(0xff9944, 2.0, 20, 1.5);
+altarLight.position.set(0, 3, 40);
+g.add(altarLight);
+// Cross
+const crossMat = matStandard({ color: 0x3a2010, roughness: 0.9 });
+const crossV = box(0.4, 4, 0.4, crossMat);
+crossV.position.set(0, 6, 40);
+g.add(crossV);
+const crossH = box(2, 0.4, 0.4, crossMat);
+crossH.position.set(0, 7, 40);
+g.add(crossH);
+// broken statues
+for (let i = 0; i < 6; i++) {
+const st = new THREE.Mesh(new THREE.IcosahedronGeometry(0.6, 0), matStandard({ color: 0x8a7a6a, roughness: 0.9 }));
+st.position.set(-12 + Math.random()*24, 0.6, -30 + Math.random()*60);
+st.castShadow = true;
+g.add(st);
+}
+buildLampPost(g, 0, -30, 0xffaa66, 1.4);
+buildLampPost(g, 0, 20, 0xffaa66, 1.4);
+return g;
+}
+
+/* AREA 11 — MILITARY BUNKER */
+function level_Bunker() {
+applyAtmosphere(0x080a0e, 0.030, 0x4a5a70, 0.9, 0x7788aa, 0.3, new THREE.Vector3(0, 60, 0));
+const g = new THREE.Group();
+buildGround(g, MAT.concreteGround());
+const wallMat = MAT.metalWall(0x5a6070);
+// bunker walls
+for (let i = -30; i <= 30; i += 15) {
+for (let s = -1; s <= 1; s += 2) {
+const w = box(3, 8, 12, wallMat);
+w.position.set(i, 4, s * 25);
+w.castShadow = true; w.receiveShadow = true;
+g.add(w);
+addObstacle(i, s * 25, 3, 12, 8);
+}
+}
+// bunk beds
+const bedMat = matStandard({ map: TEX.metal, color: 0x4a4a4a, metalness: 0.6, roughness: 0.6 });
+for (let i = 0; i < 12; i++) {
+const bx = -35 + Math.random()*70;
+const bz = -20 + Math.random()*40;
+const top = box(2, 0.1, 3.5, bedMat);
+top.position.set(bx, 2, bz);
+g.add(top);
+const bot = box(2, 0.1, 3.5, bedMat);
+bot.position.set(bx, 0.5, bz);
+g.add(bot);
+for (let lx = -1; lx <= 1; lx += 2) for (let lz = -1; lz <= 1; lz += 2) {
+const leg = box(0.1, 2, 0.1, bedMat);
+leg.position.set(bx + lx*0.9, 1, bz + lz*1.5);
+g.add(leg);
+}
+addObstacle(bx, bz, 2, 3.5, 2);
+}
+// weapon lockers
+for (let i = 0; i < 8; i++) {
+const l = box(1, 4, 1, matStandard({ color: 0x3a4a3a, metalness: 0.6, roughness: 0.5 }));
+l.position.set(-35 + i*10, 2, -35);
+l.castShadow = true;
+g.add(l);
+}
+addObstacle(0, -35, 80, 1, 4);
+// Ammo crates
+for (let i = 0; i < 20; i++) buildCrate(g, -40 + Math.random()*80, 20 + Math.random()*15, 0.8 + Math.random()*0.5);
+// red emergency lights
+for (let i = 0; i < 6; i++) {
+const rl = new THREE.PointLight(0xff3322, 1.4, 14, 1.6);
+rl.position.set(-30 + i*12, 5, 0);
+g.add(rl);
+}
+buildLampPost(g, 0, 0, 0xff8866, 1.6);
+return g;
+}
+
+/* AREA 12 — SWAMP */
+function level_Swamp() {
+applyAtmosphere(0x0a0f0a, 0.055, 0x405040, 0.85, 0x667755, 0.3, new THREE.Vector3(10, 60, 10));
+const g = new THREE.Group();
+buildGround(g, MAT.waterGround());
+// water surface with slight animation feel
+const water = new THREE.Mesh(
+new THREE.PlaneGeometry(160, 160, 1, 1),
+matStandard({ map: TEX.water, color: 0x2a4a5a, transparent: true, opacity: 0.85, roughness: 0.15, metalness: 0.3 })
+);
+water.rotation.x = -Math.PI/2;
+water.position.y = 0.15;
+g.add(water);
+// Dead trees
+for (let i = 0; i < 40; i++) buildTree(g, -65 + Math.random()*130, -65 + Math.random()*130, 4 + Math.random()*5, true, 0.8 + Math.random()*0.5);
+// Reeds (thin cylinders)
+const reedMat = matStandard({ color: 0x3a4a20, roughness: 1.0 });
+for (let i = 0; i < 200; i++) {
+const r = cylinder(0.02, 0.03, 1 + Math.random()*0.5, 4, reedMat);
+r.position.set(-70 + Math.random()*140, 0.75, -70 + Math.random()*140);
+g.add(r);
+}
+// Mushrooms
+const mushMat = matStandard({ color: 0x4a5a2a, emissive: 0x2a3a0a, emissiveIntensity: 0.4 });
+for (let i = 0; i < 40; i++) {
+const m = new THREE.Mesh(new THREE.SphereGeometry(0.25 + Math.random()*0.15, 8, 6), mushMat);
+m.position.set(-60 + Math.random()*120, 0.3, -60 + Math.random()*120);
+g.add(m);
+}
+// small shack on stilts
+const stiltMat = matStandard({ map: TEX.wood, color: 0x4a3020, roughness: 1.0 });
+for (let lx = -1; lx <= 1; lx += 2) for (let lz = -1; lz <= 1; lz += 2) {
+const s = cylinder(0.15, 0.15, 2, 6, stiltMat);
+s.position.set(30 + lx*2, 1, -25 + lz*2);
+g.add(s);
+}
+buildSimpleBuilding(g, 30, -25, 5, 5, 3, MAT.woodWall(0x3a2818), matStandard({ color: 0x1a1008 }), 0x0a0504, true);
+// fog patches (extra lights)
+for (let i = 0; i < 5; i++) {
+const l = new THREE.PointLight(0x88aa88, 0.8, 18, 1.8);
+l.position.set(-40 + i*20, 3, -40 + i*15);
+g.add(l);
+}
+return g;
+}
+
+/* AREA 13 — FACTORY */
+function level_Factory() {
+applyAtmosphere(0x0e0a0a, 0.032, 0x605050, 0.9, 0x998877, 0.4, new THREE.Vector3(20, 70, 20));
+const g = new THREE.Group();
+buildGround(g, MAT.concreteGround());
+const wallMat = MAT.metalWall(0x606060);
+// Large machines
+const machineMat = matStandard({ map: TEX.metal, color: 0x6a6a6a, metalness: 0.8, roughness: 0.4 });
+for (let i = 0; i < 6; i++) {
+const mx = -40 + i*15;
+const m = box(8, 4, 8, machineMat);
+m.position.set(mx, 2, -25);
+m.castShadow = true; m.receiveShadow = true;
+g.add(m);
+addObstacle(mx, -25, 8, 8, 4);
+// spinning bit (stylized)
+const bit = cylinder(0.6, 0.6, 1, 12, matStandard({ color: 0x3a3a3a, metalness: 0.9, roughness: 0.3 }));
+bit.position.set(mx, 4.5, -25);
+bit.rotation.x = Math.PI/2;
+g.add(bit);
+}
+// Conveyor belt
+const beltMat = matStandard({ color: 0x1a1a1a, roughness: 0.9 });
+const belt = box(60, 0.1, 2, beltMat);
+belt.position.set(0, 1.5, 10);
+g.add(belt);
+for (let i = 0; i < 20; i++) {
+const roller = cylinder(0.3, 0.3, 2.2, 8, matStandard({ color: 0x4a4a4a, metalness: 0.7 }));
+roller.position.set(-30 + i*3, 1.3, 10);
+roller.rotation.x = Math.PI/2;
+g.add(roller);
+}
+// Tanks
+for (let i = 0; i < 4; i++) {
+const t = cylinder(3, 3, 8, 16, matStandard({ color: 0x8a6a3a, metalness: 0.6, roughness: 0.5 }));
+t.position.set(-45 + i*30, 4, 30);
+t.castShadow = true;
+g.add(t);
+addObstacle(-45 + i*30, 30, 6, 6, 8);
+}
+// Pipes everywhere
+buildPipeRun(g, -50, -15, 50, -15, 5, 0x8a3a1a);
+buildPipeRun(g, -50, 0, 50, 0, 4, 0x1a5a8a);
+buildPipeRun(g, -50, 25, 50, 25, 6, 0x6a6a2a);
+for (let i = 0; i < 15; i++) buildBarrel(g, -40 + Math.random()*80, -15 + Math.random()*40, 0x8a3a1a);
+buildLampPost(g, -30, 0, 0xffaa66, 2.0);
+buildLampPost(g, 30, 0, 0xffaa66, 2.0);
+buildLampPost(g, 0, 30, 0xffaa66, 1.6);
+return g;
+}
+
+/* AREA 14 — APARTMENT BLOCK */
+function level_Apartment() {
+applyAtmosphere(0x0a0808, 0.045, 0x605040, 0.9, 0x998877, 0.3, new THREE.Vector3(0, 80, 0));
+const g = new THREE.Group();
+buildGround(g, matStandard({ map: TEX.tile, color: 0x8a7060, roughness: 0.95 }));
+const wallMat = MAT.brickWall(0x7a5a48);
+// Corridor rooms
+for (let i = -40; i <= 40; i += 20) {
+for (let s = -1; s <= 1; s += 2) {
+const room = box(18, 4, 18, wallMat);
+room.position.set(i, 2, s * 22);
+room.castShadow = true; room.receiveShadow = true;
+g.add(room);
+addObstacle(i, s * 22, 18, 18, 4);
+}
+}
+// Furniture
+const sofaMat = matStandard({ color: 0x5a2a2a, roughness: 0.9 });
+for (let i = 0; i < 10; i++) {
+const sx = -35 + Math.random()*70, sz = -35 + Math.random()*70;
+const sofa = box(2.5, 0.8, 1.2, sofaMat);
+sofa.position.set(sx, 0.4, sz);
+sofa.castShadow = true;
+g.add(sofa);
+addObstacle(sx, sz, 2.5, 1.2, 0.8);
+}
+// TV sets (old CRT)
+const tvMat = matStandard({ color: 0x1a1a1a, roughness: 0.7 });
+for (let i = 0; i < 10; i++) {
+const tx = -35 + Math.random()*70, tz = -35 + Math.random()*70;
+const tv = box(1, 0.8, 0.6, tvMat);
+tv.position.set(tx, 1.0, tz);
+g.add(tv);
+}
+// Tables
+for (let i = 0; i < 12; i++) {
+const tx = -35 + Math.random()*70, tz = -35 + Math.random()*70;
+const table = box(1.5, 0.06, 1, matStandard({ map: TEX.wood, color: 0x8a6a40 }));
+table.position.set(tx, 0.75, tz);
+g.add(table);
+addObstacle(tx, tz, 1.5, 1, 0.8);
+}
+buildLampPost(g, 0, 0, 0xffcc88, 1.8);
+buildLampPost(g, -30, 0, 0xffcc88, 1.4);
+buildLampPost(g, 30, 0, 0xffcc88, 1.4);
+buildLampPost(g, 0, -30, 0xffcc88, 1.4);
+buildLampPost(g, 0, 30, 0xffcc88, 1.4);
+return g;
+}
+
+/* AREA 15 — THE LAST ROAD */
+function level_LastRoad() {
+applyAtmosphere(0x08080a, 0.040, 0x505060, 0.8, 0x8899aa, 0.4, new THREE.Vector3(-30, 80, 30));
+const g = new THREE.Group();
+buildGround(g, matStandard({ map: TEX.concrete, color: 0x4a4a50, roughness: 0.95 }));
+// Road
+const road = box(20, 0.05, 140, matStandard({ color: 0x1a1a1a, roughness: 0.9 }));
+road.position.set(0, 0.03, 0);
+g.add(road);
+// Broken cars along the road
+const carMat = [0x3a1a1a, 0x2a3a2a, 0x3a3a1a, 0x1a1a3a];
+for (let i = 0; i < 12; i++) {
+const car = box(2, 1.2, 4.5, matStandard({ color: carMat[i%4], roughness: 0.7, metalness: 0.4 }));
+car.position.set(-8 + (i%2)*16, 0.6, -60 + i*10 + Math.random()*4);
+car.rotation.y = Math.random() * 0.4 - 0.2;
+car.castShadow = true;
+g.add(car);
+addObstacle(car.position.x, car.position.z, 2, 4.5, 1.2);
+}
+// Dead lamp posts along road
+for (let i = -60; i <= 60; i += 15) {
+buildLampPost(g, -12, i, 0xaaaa88, 0.8);
+buildLampPost(g, 12, i, 0xaaaa88, 0.8);
+}
+// Wrecked buildings on the sides
+buildSimpleBuilding(g, -30, -40, 10, 10, 6, MAT.brickWall(0x6a5a50), matStandard({ color: 0x2a2020 }), 0x050505, false);
+buildSimpleBuilding(g, 30, -30, 12, 12, 8, MAT.brickWall(0x6a5a50), matStandard({ color: 0x2a2020 }), 0x050505, true);
+buildSimpleBuilding(g, -30, 30, 8, 8, 5, MAT.brickWall(0x6a5a50), matStandard({ color: 0x2a2020 }), 0x050505, false);
+buildSimpleBuilding(g, 30, 40, 10, 10, 7, MAT.brickWall(0x6a5a50), matStandard({ color: 0x2a2020 }), 0x050505, false);
+// Fog warning
+for (let i = 0; i < 10; i++) {
+const t = new THREE.PointLight(0x88aaff, 1.0, 20, 1.6);
+t.position.set(-20 + i*5, 4, -70 + i*15);
+g.add(t);
+}
+return g;
+}
+
+/* FINAL — METRO STATION (BOSS ARENA) */
+function level_Metro() {
+applyAtmosphere(0x040305, 0.070, 0x3a2a3a, 0.75, 0x665577, 0.25, new THREE.Vector3(0, 50, 0));
+const g = new THREE.Group();
+buildGround(g, matStandard({ map: TEX.tile, color: 0x5a4a50, roughness: 0.9 }));
+const wallMat = matStandard({ map: TEX.brick, color: 0x4a3a40, roughness: 0.95 });
+// Enclosure
+for (let s = -1; s <= 1; s += 2) {
+const w = box(3, 12, 100, wallMat);
+w.position.set(s * 40, 6, 0);
+w.receiveShadow = true; w.castShadow = true;
+g.add(w);
+addObstacle(s * 40, 0, 3, 100, 12);
+const w2 = box(80, 12, 3, wallMat);
+w2.position.set(0, 6, s * 40);
+w2.receiveShadow = true;
+g.add(w2);
+addObstacle(0, s * 40, 80, 3, 12);
+}
+// Ceiling
+const ceil = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), matStandard({ color: 0x1a1218, roughness: 1.0 }));
+ceil.rotation.x = Math.PI/2;
+ceil.position.y = 12;
+g.add(ceil);
+// Columns
+const colMat = matStandard({ map: TEX.concrete, color: 0x7a6a70, roughness: 0.9 });
+for (let i = -1; i <= 1; i++) {
+for (let j = -1; j <= 1; j++) {
+const col = cylinder(0.8, 0.9, 12, 12, colMat);
+col.position.set(i*20, 6, j*20);
+col.castShadow = true;
+g.add(col);
+addObstacle(i*20, j*20, 2, 2, 12);
+}
+}
+// Broken ticket booths
+for (let i = 0; i < 5; i++) {
+const tb = box(3, 2.5, 2, matStandard({ color: 0x3a3035, roughness: 0.7 }));
+tb.position.set(-30 + i*15, 1.25, -30);
+tb.castShadow = true;
+g.add(tb);
+addObstacle(-30 + i*15, -30, 3, 2, 2.5);
+}
+// Rails in the center
+const railMat = matStandard({ color: 0x2a2a2a, metalness: 0.8, roughness: 0.3 });
+for (let r = -1; r <= 1; r += 2) {
+const rail = box(0.15, 0.1, 60, railMat);
+rail.position.set(r*1.2, 0.1, 0);
+g.add(rail);
+}
+// Puddles of dark liquid
+const puddleMat = matStandard({ color: 0x1a0a0a, roughness: 0.2, metalness: 0.1 });
+for (let i = 0; i < 15; i++) {
+const p = new THREE.Mesh(new THREE.CircleGeometry(1 + Math.random()*2, 12), puddleMat);
+p.rotation.x = -Math.PI/2;
+p.position.set(-30 + Math.random()*60, 0.02, -30 + Math.random()*60);
+g.add(p);
+}
+// Flickering fluorescent lights
+for (let i = -1; i <= 1; i++) {
+for (let j = -1; j <= 1; j++) {
+const pl = new THREE.PointLight(0x9988aa, 1.6, 22, 1.7);
+pl.position.set(i*20, 10, j*20);
+g.add(pl);
+// fixture
+const fix = box(2, 0.1, 0.6, new THREE.MeshBasicMaterial({ color: 0xbbaacc }));
+fix.position.set(i*20, 11.9, j*20);
+g.add(fix);
+}
+}
+// Boss spawn point light
+const bossLight = new THREE.PointLight(0xff2200, 2.5, 40, 1.3);
+bossLight.position.set(0, 5, 0);
+g.add(bossLight);
+// Scattered bones/body bags
+for (let i = 0; i < 20; i++) {
+const bag = box(0.8, 0.3, 1.8, matStandard({ color: 0x1a1010, roughness: 0.9 }));
+bag.position.set(-30 + Math.random()*60, 0.15, -30 + Math.random()*60);
+bag.rotation.y = Math.random() * Math.PI;
+bag.castShadow = true;
+g.add(bag);
+}
+return g;
+}
+
+/* ============================ LEVEL REGISTRY ============================ */
+const LEVELS = [
+{ name: 'AREA 1 / 15', sub: 'SECTION I — ABANDONED VILLAGE', build: level_Village, peeMax: 4, enemies: 2 },
+{ name: 'AREA 2 / 15', sub: 'SECTION II — INDUSTRIAL YARD', build: level_Industrial, peeMax: 5, enemies: 3 },
+{ name: 'AREA 3 / 15', sub: 'SECTION III — FROZEN WASTELAND',build: level_Frozen, peeMax: 6, enemies: 3 },
+{ name: 'AREA 4 / 15', sub: 'SECTION IV — SEWER TUNNELS', build: level_Sewer, peeMax: 7, enemies: 4 },
+{ name: 'AREA 5 / 15', sub: 'SECTION V — DEAD FOREST', build: level_DeadForest, peeMax: 7, enemies: 4 },
+{ name: 'AREA 6 / 15', sub: 'SECTION VI — WAREHOUSE', build: level_Warehouse, peeMax: 8, enemies: 5 },
+{ name: 'AREA 7 / 15', sub: 'SECTION VII — HOSPITAL', build: level_Hospital, peeMax: 9, enemies: 5 },
+{ name: 'AREA 8 / 15', sub: 'SECTION VIII — SCHOOL', build: level_School, peeMax: 10, enemies: 5 },
+{ name: 'AREA 9 / 15', sub: 'SECTION IX — CONSTRUCTION SITE',build: level_Construction,peeMax: 10,enemies: 6 },
+{ name: 'AREA 10 / 15', sub: 'SECTION X — CHURCH', build: level_Church, peeMax: 11, enemies: 6 },
+{ name: 'AREA 11 / 15', sub: 'SECTION XI — BUNKER', build: level_Bunker, peeMax: 12, enemies: 6 },
+{ name: 'AREA 12 / 15', sub: 'SECTION XII — SWAMP', build: level_Swamp, peeMax: 12, enemies: 7 },
+{ name: 'AREA 13 / 15', sub: 'SECTION XIII — FACTORY', build: level_Factory, peeMax: 13, enemies: 7 },
+{ name: 'AREA 14 / 15', sub: 'SECTION XIV — APARTMENT', build: level_Apartment, peeMax: 14, enemies: 7 },
+{ name: 'AREA 15 / 15', sub: 'SECTION XV — THE LAST ROAD', build: level_LastRoad, peeMax: 15, enemies: 8 },
+{ name: 'FINAL — METRO STATION', sub: 'SECTION XVI — THE MOTHER', build: level_Metro, peeMax: 0, enemies: 0, isBoss: true },
+];
+
+/* ============================ ENEMIES ============================ */
+function enemyMaterial(tint) {
+return matStandard({ color: tint, roughness: 0.85, metalness: 0.05 });
+}
+
+// --- Pillbug (segmented armoured roly-poly) ---
+function createPillbug() {
+const g = new THREE.Group();
+const segs = 9;
+const segMat = enemyMaterial(0x2e2620);
+for (let i = 0; i < segs; i++) {
+const r = 0.5 - Math.abs(i - segs/2) * 0.035;
+const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 12), segMat);
+seg.position.z = (i - segs/2) * 0.32;
+seg.castShadow = true;
+g.add(seg);
+}
+// Legs
+const legMat = enemyMaterial(0x0e0a08);
+for (let i = 0; i < segs; i++) {
+for (let s = -1; s <= 1; s += 2) {
+const leg = cylinder(0.03, 0.02, 0.45, 5, legMat);
+leg.position.set(s * 0.42, -0.32, (i - segs/2) * 0.32);
+leg.rotation.z = s * 0.7;
+leg.castShadow = true;
+g.add(leg);
+}
+}
+// Glowing eyes
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
+for (let s = -1; s <= 1; s += 2) {
+const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), eyeMat);
+eye.position.set(s * 0.15, 0.2, -segs/2 * 0.32 - 0.3);
+g.add(eye);
+}
+// Antennae
+for (let s = -1; s <= 1; s += 2) {
+const ant = cylinder(0.015, 0.01, 0.6, 4, legMat);
+ant.position.set(s * 0.1, 0.4, -segs/2 * 0.32 - 0.2);
+ant.rotation.x = -0.5;
+ant.rotation.z = s * 0.3;
+g.add(ant);
+}
+g.userData = { type: 'pillbug', speed: 2.2, hp: 3, w: 1.2, wiggles: 0, hurtCooldown: 0 };
+return g;
+}
+
+// --- Tapeworm (long undulating segments) ---
+function createTapeworm() {
+const g = new THREE.Group();
+const segs = 14;
+const segMat = enemyMaterial(0x8a4a5a);
+for (let i = 0; i < segs; i++) {
+const r = 0.28 - i * 0.01;
+const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), segMat);
+seg.position.z = i * 0.35;
+seg.castShadow = true;
+g.add(seg);
+}
+// Mouth
+const mouthMat = new THREE.MeshBasicMaterial({ color: 0x3a0a0a });
+const mouth = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.4, 8), mouthMat);
+mouth.position.z = -0.25;
+mouth.rotation.x = Math.PI;
+g.add(mouth);
+// Teeth ring
+const toothMat = matStandard({ color: 0xe0d8a0, roughness: 0.6 });
+for (let i = 0; i < 8; i++) {
+const a = (i / 8) * Math.PI * 2;
+const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.12, 4), toothMat);
+tooth.position.set(Math.cos(a)*0.18, Math.sin(a)*0.18, -0.3);
+tooth.lookAt(0, 0, 0);
+tooth.rotateX(Math.PI);
+g.add(tooth);
+}
+// Eyes
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+for (let s = -1; s <= 1; s += 2) {
+const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), eyeMat);
+eye.position.set(s * 0.12, 0.15, -0.35);
+g.add(eye);
+}
+g.userData = { type: 'tapeworm', speed: 3.4, hp: 2, w: 2.4, wiggles: 0, hurtCooldown: 0 };
+return g;
+}
+
+// --- Centipede (many legs, fast) ---
+function createCentipede() {
+const g = new THREE.Group();
+const segs = 16;
+const segMat = enemyMaterial(0x6a2a2a);
+for (let i = 0; i < segs; i++) {
+const r = 0.35 - Math.abs(i - segs/2) * 0.012;
+const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), segMat);
+seg.position.z = (i - segs/2) * 0.28;
+seg.castShadow = true;
+g.add(seg);
+}
+// Many legs
+const legMat = enemyMaterial(0x3a1a0a);
+for (let i = 0; i < segs; i++) {
+for (let s = -1; s <= 1; s += 2) {
+const leg = cylinder(0.025, 0.015, 0.6, 5, legMat);
+leg.position.set(s * 0.35, -0.28, (i - segs/2) * 0.28);
+leg.rotation.z = s * 0.8;
+leg.castShadow = true;
+g.add(leg);
+}
+}
+// Forked tail (venomous)
+const tailMat = enemyMaterial(0x8a1a1a);
+for (let s = -1; s <= 1; s += 2) {
+const t = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.5, 6), tailMat);
+t.position.set(s * 0.15, 0, segs/2 * 0.28 + 0.2);
+t.rotation.x = -Math.PI/2 - 0.3;
+t.rotation.z = s * 0.2;
+g.add(t);
+}
+// Head
+const headMat = enemyMaterial(0x4a1a0a);
+const head = new THREE.Mesh(new THREE.SphereGeometry(0.45, 14, 12), headMat);
+head.position.z = -segs/2 * 0.28 - 0.15;
+head.castShadow = true;
+g.add(head);
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
+for (let s = -1; s <= 1; s += 2) {
+const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), eyeMat);
+eye.position.set(s * 0.2, 0.15, -segs/2 * 0.28 - 0.35);
+g.add(eye);
+}
+// Mandibles
+for (let s = -1; s <= 1; s += 2) {
+const m = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.25, 5), matStandard({ color: 0xe0c080 }));
+m.position.set(s * 0.12, -0.1, -segs/2 * 0.28 - 0.4);
+m.rotation.x = -Math.PI/2;
+m.rotation.z = s * 0.3;
+g.add(m);
+}
+g.userData = { type: 'centipede', speed: 4.6, hp: 4, w: 2.6, wiggles: 0, hurtCooldown: 0 };
+return g;
+}
+
+function spawnEnemy(kind, pos) {
+let e;
+if (kind === 'pillbug') e = createPillbug();
+else if (kind === 'tapeworm') e = createTapeworm();
+else e = createCentipede();
+e.position.copy(pos);
+e.position.y = 0.6;
+scene.add(e);
+G.enemies.push(e);
+return e;
+}
+
+function updateEnemies(dt) {
+const t = performance.now() * 0.001;
+for (let i = G.enemies.length - 1; i >= 0; i--) {
+const e = G.enemies[i];
+const d = e.userData;
+// Move toward player (with slight avoidance of obstacles via simple steering)
+const toPlayer = new THREE.Vector3().subVectors(player.pos, e.position);
+toPlayer.y = 0;
+const dist = toPlayer.length();
+toPlayer.normalize();
+
+// Gentle wiggle
+d.wiggles += dt;
+const wiggle = Math.sin(d.wiggles * 6) * 0.15;
+
+if (dist > 1.4) {
+const step = d.speed * dt;
+e.position.x += toPlayer.x * step;
+e.position.z += toPlayer.z * step;
+// face player
+const ang = Math.atan2(toPlayer.x, toPlayer.z);
+e.rotation.y = ang + wiggle * 0.3;
+}
+
+// Segment animation (undulation)
+e.children.forEach((c, idx) => {
+if (c.position.z !== undefined && idx < 18) {
+c.position.x = Math.sin(t * 4 + idx * 0.4) * 0.06;
+}
+});
+
+// Attack
+d.hurtCooldown -= dt;
+if (dist < 1.8 && d.hurtCooldown <= 0 && player.invuln <= 0 && !player.peeing) {
+damagePlayer(1);
+d.hurtCooldown = 1.6;
+// knockback
+const kb = new THREE.Vector3().subVectors(player.pos, e.position).normalize().multiplyScalar(0.6);
+player.pos.add(kb);
+} else if (dist < 1.8 && d.hurtCooldown <= 0 && player.peeing) {
+// Peeing scares them off — takes a step back
+const push = new THREE.Vector3().subVectors(e.position, player.pos).normalize().multiplyScalar(0.5);
+e.position.add(push);
+d.hurtCooldown = 1.2;
+}
+
+// Despawn if too far
+if (dist > 90) {
+scene.remove(e);
+G.enemies.splice(i, 1);
+}
+}
+}
+
+/* ============================ HEALING ITEMS ============================ */
+function spawnHeal() {
+const g = new THREE.Group();
+const outer = new THREE.Mesh(
+new THREE.OctahedronGeometry(0.35, 0),
+matStandard({ color: 0xff2244, emissive: 0xaa0022, emissiveIntensity: 0.8, roughness: 0.4 })
+);
+outer.castShadow = true;
+g.add(outer);
+const inner = new THREE.Mesh(
+new THREE.OctahedronGeometry(0.2, 0),
+new THREE.MeshBasicMaterial({ color: 0xffddaa })
+);
+g.add(inner);
+const light = new THREE.PointLight(0xff3366, 1.2, 8, 2);
+g.add(light);
+g.position.set(
+-40 + Math.random()*80,
+1.2,
+-40 + Math.random()*80
+);
+g.userData = { spin: 0, bob: 0, baseY: g.position.y };
+scene.add(g);
+G.heals.push(g);
+}
+
+function updateHeals(dt) {
+for (let i = G.heals.length - 1; i >= 0; i--) {
+const h = G.heals[i];
+h.userData.spin += dt * 2;
+h.userData.bob += dt * 3;
+h.rotation.y = h.userData.spin;
+h.position.y = h.userData.baseY + Math.sin(h.userData.bob) * 0.2;
+if (h.position.distanceTo(player.pos) < 1.5) {
+player.hp = player.maxHp;
+updateHUD();
+showMessage('+ VITALITY RESTORED +', 1400);
+flashScreen();
+scene.remove(h);
+G.heals.splice(i, 1);
+}
+}
+}
+
+/* ============================ BOSS ============================ */
+function createBoss() {
+const g = new THREE.Group();
+
+// Massive segmented worm body (the "Mother")
+const bodyMat = matStandard({ color: 0x5a1a1a, roughness: 0.55, metalness: 0.1 });
+const segs = 14;
+const bodySegs = [];
+for (let i = 0; i < segs; i++) {
+const r = 2.2 - i * 0.1;
+const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 16), bodyMat);
+seg.position.y = i * 1.6;
+seg.castShadow = true;
+seg.receiveShadow = true;
+g.add(seg);
+bodySegs.push(seg);
+}
+g.userData.bodySegs = bodySegs;
+
+// Head with fleshy features
+const headMat = matStandard({ color: 0x8a2a1a, roughness: 0.5, metalness: 0.1 });
+const head = new THREE.Mesh(new THREE.SphereGeometry(2.6, 20, 16), headMat);
+head.position.y = segs * 1.6;
+head.castShadow = true;
+g.add(head);
+g.userData.head = head;
+
+// Mouth - giant gaping maw
+const mouthMat = matStandard({ color: 0x1a0000, roughness: 0.4, emissive: 0x3a0000, emissiveIntensity: 0.3 });
+const mouth = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 12), mouthMat);
+mouth.position.set(0, segs * 1.6 - 0.2, -1.6);
+mouth.scale.set(1, 1.2, 0.6);
+g.add(mouth);
+
+// Rows of teeth
+const toothMat = matStandard({ color: 0xd8c898, roughness: 0.4, metalness: 0.2 });
+for (let row = 0; row < 3; row++) {
+for (let i = 0; i < 10; i++) {
+const a = (i / 10) * Math.PI * 2;
+const t = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.6, 6), toothMat);
+t.position.set(
+Math.cos(a) * 1.4,
+segs * 1.6 - 0.2 + Math.sin(a) * 1.4,
+-1.8 + row * 0.25
+);
+t.rotation.x = Math.PI/2;
+t.rotation.z = -a;
+g.add(t);
+}
+}
+
+// Eyes - multiple glowing
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2200 });
+const eyePositions = [
+[-1.2, segs*1.6 + 1.3, -1.6], [1.2, segs*1.6 + 1.3, -1.6],
+[-1.8, segs*1.6 + 0.5, -1.8], [1.8, segs*1.6 + 0.5, -1.8],
+[-0.6, segs*1.6 + 1.8, -1.4], [0.6, segs*1.6 + 1.8, -1.4],
+[-2.2, segs*1.6 - 0.3, -1.6], [2.2, segs*1.6 - 0.3, -1.6],
+];
+eyePositions.forEach(([x, y, z]) => {
+const eye = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), eyeMat);
+eye.position.set(x, y, z);
+g.add(eye);
+});
+
+// Arms/tentacles hanging from body
+const tentMat = matStandard({ color: 0x4a0a0a, roughness: 0.6 });
+for (let s = -1; s <= 1; s += 2) {
+for (let t = 0; t < 3; t++) {
+const tent = new THREE.Group();
+let prevR = 0.35, prevY = 0, prevX = 0;
+for (let j = 0; j < 8; j++) {
+const r = 0.35 - j * 0.03;
+const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), tentMat);
+seg.position.set(prevX, prevY, 0);
+seg.castShadow = true;
+tent.add(seg);
+prevX += Math.sin(j * 0.3 + t) * 0.15 * s;
+prevY -= 0.35;
+}
+tent.position.set(s * 2.2, segs * 1.6 - 1.5 - t * 1.2, 0);
+g.add(tent);
+}
+}
+
+// Pustules across body
+const pustMat = matStandard({ color: 0xaa3a2a, emissive: 0x3a0a00, emissiveIntensity: 0.4, roughness: 0.5 });
+for (let i = 0; i < 30; i++) {
+const s = bodySegs[Math.floor(Math.random() * segs)];
+if (!s) continue;
+const a = Math.random() * Math.PI * 2;
+const p = new THREE.Mesh(new THREE.SphereGeometry(0.15 + Math.random()*0.1, 8, 6), pustMat);
+p.position.set(
+s.position.x + Math.cos(a) * 2.0,
+s.position.y + (Math.random()-0.5) * 1.0,
+s.position.z + Math.sin(a) * 2.0
+);
+g.add(p);
+}
+
+// Dark ambient glow
+const bossLight = new THREE.PointLight(0xff2200, 3.0, 30, 1.4);
+bossLight.position.set(0, segs * 1.6 - 2, -1);
+g.add(bossLight);
+
+g.userData.hp = 300;
+g.userData.maxHp = 300;
+g.userData.attackCd = 0;
+g.userData.attackCharge = 0;
+g.userData.time = 0;
+return g;
+}
+
+function updateBoss(dt) {
+if (!G.boss) return;
+const b = G.boss;
+const d = b.userData;
+d.time += dt;
+
+// Slow undulation
+if (d.bodySegs) {
+d.bodySegs.forEach((s, i) => {
+s.position.x = Math.sin(d.time * 0.8 + i * 0.4) * 0.4;
+s.position.z = Math.cos(d.time * 0.6 + i * 0.3) * 0.3;
+});
+}
+
+// Move slowly toward player
+const toP = new THREE.Vector3().subVectors(player.pos, b.position);
+toP.y = 0;
+const dist = toP.length();
+if (dist > 6) {
+toP.normalize();
+b.position.x += toP.x * 1.2 * dt;
+b.position.z += toP.z * 1.2 * dt;
+}
+// Face player
+b.rotation.y = Math.atan2(toP.x, toP.z) + Math.PI;
+
+// Attack cycle
+d.attackCd -= dt;
+if (d.attackCd <= 0 && dist < 12) {
+// Telegraph
+d.attackCharge += dt;
+b.children.forEach(c => {
+if (c.material && c.material.emissive) {
+c.material.emissiveIntensity = 0.3 + d.attackCharge * 0.8;
+}
+});
+if (d.attackCharge > 1.5) {
+// Attack!
+if (dist < 9 && player.invuln <= 0) damagePlayer(1);
+d.attackCd = 4.5;
+d.attackCharge = 0;
+b.children.forEach(c => {
+if (c.material && c.material.emissive) c.material.emissiveIntensity = 0.3;
+});
+}
+}
+
+// Pee damage
+if (player.peeing && dist < 10) {
+d.hp -= dt; // 1 HP per second of urination
+if (d.hp < 0) d.hp = 0;
+updateBossHUD();
+if (d.hp <= 0) {
+winGame();
+}
+}
+
+updateBossHUD();
+}
+
+/* ============================ PLAYER DAMAGE & HUD ============================ */
+function damagePlayer(amt) {
+if (player.invuln > 0) return;
+player.hp -= amt;
+player.hurtFlash = 0.4;
+damageFlash();
+if (player.hp <= 0) {
+player.hp = 0;
+updateHUD();
+die();
+return;
+}
+updateHUD();
+}
+
+function updateHUD() {
+$('hp-fill').style.width = (player.hp / player.maxHp * 100) + '%';
+document.querySelector('#hp-bar .bar-label').textContent =
+`VITALITY — ${Math.ceil(player.hp)} / ${player.maxHp}`;
+let pct = 0;
+if (G.inBoss) {
+pct = 100;
+} else {
+pct = (player.pee / player.peeMax) * 100;
+}
+$('pee-fill').style.width = pct + '%';
+}
+
+function updateBossHUD() {
+if (!G.boss) return;
+const d = G.boss.userData;
+$('boss-hp-fill').style.width = (d.hp / d.maxHp * 100) + '%';
+document.querySelector('#boss-hp .bar-label').textContent =
+`THE MOTHER — ${Math.ceil(d.hp)} / ${d.maxHp}`;
+}
+
+function showBossHUD(show) {
+$('boss-hp').style.display = show ? 'block' : 'none';
+}
+
+/* ============================ LEVEL LOAD ============================ */
+function loadLevel(index) {
+clearLevel();
+clearAtmosphere();
+
+const cfg = LEVELS[index];
+G.level = index;
+
+// Level group
+G.levelGroup = cfg.build();
+scene.add(G.levelGroup);
+
+// Player spawn at origin
+player.pos.set(0, 1.7, 0);
+player.vel.set(0, 0, 0);
+player.yaw = 0;
+player.pitch = 0;
+
+// Reset pee for new level
+player.pee = 0;
+player.peeMax = cfg.peeMax;
+updateHUD();
+
+// HUD labels
+$('level-info').textContent = cfg.name;
+$('level-sub').textContent = cfg.sub;
+
+// Spawn enemies
+G.enemies.length = 0;
+const kinds = ['pillbug', 'tapeworm', 'centipede'];
+for (let i = 0; i < cfg.enemies; i++) {
+const k = kinds[Math.floor(Math.random() * 3)];
+const ang = Math.random() * Math.PI * 2;
+const rad = 22 + Math.random() * 20;
+spawnEnemy(k, new THREE.Vector3(Math.cos(ang)*rad, 0, Math.sin(ang)*rad));
+}
+
+// Heal items
+G.heals.length = 0;
+if (index < 15 && Math.random() < 0.8) spawnHeal();
+if (index < 15 && Math.random() < 0.4) spawnHeal();
+
+// Boss
+if (cfg.isBoss) {
+G.inBoss = true;
+showBossHUD(true);
+G.boss = createBoss();
+G.boss.position.set(0, 0, -18);
+scene.add(G.boss);
+showMessage('THE MOTHER AWAKENS', 3200);
+} else {
+G.inBoss = false;
+showBossHUD(false);
+if (G.boss) { scene.remove(G.boss); G.boss = null; }
+}
+}
+
+function advanceLevel() {
+if (G.level < LEVELS.length - 1) {
+showMessage('THE PRESSURE SUBSIDES — NEXT ZONE', 1500);
+const fade = $('fade');
+fade.classList.add('show');
+setTimeout(() => {
+loadLevel(G.level + 1);
+fade.classList.remove('show');
+}, 600);
+}
+}
+
+/* ============================ JUMPSCARES ============================ */
+const jumpscareCanvas = document.getElementById('jumpscare-canvas');
+const jsCtx = jumpscareCanvas.getContext('2d');
+let jsActive = false;
+let jsEndTime = 0;
+let jsType = 'zombie';
+
+function drawZombieFace(ctx, w, h) {
+// Background
+ctx.fillStyle = '#000';
+ctx.fillRect(0, 0, w, h);
+
+// Skull
+const cx = w/2, cy = h/2;
+ctx.save();
+ctx.translate(cx, cy);
+ctx.scale(1.05, 1.15);
+
+// Head base
+const grd = ctx.createRadialGradient(0, -h*0.05, h*0.05, 0, 0, h*0.45);
+grd.addColorStop(0, '#8a9080');
+grd.addColorStop(0.5, '#4a5040');
+grd.addColorStop(1, '#1a1a10');
+ctx.fillStyle = grd;
+ctx.beginPath();
+ctx.ellipse(0, 0, w*0.34, h*0.42, 0, 0, Math.PI*2);
+ctx.fill();
+
+// Skull shadows / sockets
+ctx.fillStyle = '#050505';
+ctx.beginPath();
+ctx.ellipse(-w*0.14, -h*0.08, w*0.09, h*0.11, 0.15, 0, Math.PI*2);
+ctx.ellipse( w*0.14, -h*0.08, w*0.09, h*0.11, -0.15, 0, Math.PI*2);
+ctx.fill();
+
+// Red glow eyes
+for (const sx of [-1, 1]) {
+const g = ctx.createRadialGradient(sx*w*0.14, -h*0.08, 0, sx*w*0.14, -h*0.08, w*0.09);
+g.addColorStop(0, 'rgba(255,40,20,0.95)');
+g.addColorStop(0.4, 'rgba(200,0,0,0.7)');
+g.addColorStop(1, 'rgba(80,0,0,0)');
+ctx.fillStyle = g;
+ctx.beginPath();
+ctx.arc(sx*w*0.14, -h*0.08, w*0.1, 0, Math.PI*2);
+ctx.fill();
+// pupil
+ctx.fillStyle = '#000';
+ctx.beginPath();
+ctx.arc(sx*w*0.14, -h*0.08, w*0.02, 0, Math.PI*2);
+ctx.fill();
+}
+
+// Torn mouth
+ctx.fillStyle = '#0a0202';
+ctx.beginPath();
+ctx.ellipse(0, h*0.16, w*0.17, h*0.14, 0, 0, Math.PI*2);
+ctx.fill();
+
+// Teeth
+ctx.fillStyle = '#d8c898';
+for (let i = 0; i < 8; i++) {
+const tx = -w*0.15 + i*w*0.04;
+ctx.beginPath();
+ctx.moveTo(tx, h*0.06);
+ctx.lineTo(tx + w*0.02, h*0.11);
+ctx.lineTo(tx + w*0.04, h*0.06);
+ctx.closePath();
+ctx.fill();
+ctx.beginPath();
+ctx.moveTo(tx, h*0.26);
+ctx.lineTo(tx + w*0.02, h*0.21);
+ctx.lineTo(tx + w*0.04, h*0.26);
+ctx.closePath();
+ctx.fill();
+}
+
+// Blood drips
+ctx.fillStyle = 'rgba(120, 10, 10, 0.85)';
+for (let i = 0; i < 12; i++) {
+const x = (Math.random() - 0.5) * w * 0.5;
+const y = h * 0.15 + Math.random() * h * 0.25;
+ctx.fillRect(x, y, w * 0.01, h * 0.06 + Math.random() * h * 0.1);
+}
+
+// Veins
+ctx.strokeStyle = 'rgba(40,20,10,0.6)';
+ctx.lineWidth = 2;
+for (let i = 0; i < 20; i++) {
+ctx.beginPath();
+const x0 = (Math.random() - 0.5) * w * 0.6;
+const y0 = (Math.random() - 0.5) * h * 0.7;
+ctx.moveTo(x0, y0);
+ctx.lineTo(x0 + (Math.random() - 0.5) * w * 0.1, y0 + (Math.random() - 0.5) * h * 0.1);
+ctx.stroke();
+}
+
+ctx.restore();
+
+// Grain
+const img = ctx.getImageData(0, 0, w, h);
+const p = img.data;
+for (let i = 0; i < p.length; i += 4) {
+const n = (Math.random() - 0.5) * 30;
+p[i] += n; p[i+1] += n; p[i+2] += n;
+}
+ctx.putImageData(img, 0, 0);
+}
+
+function drawChuckyFace(ctx, w, h) {
+ctx.fillStyle = '#000';
+ctx.fillRect(0, 0, w, h);
+
+const cx = w/2, cy = h/2;
+ctx.save();
+ctx.translate(cx, cy);
+
+// Hair (orange, spiky)
+ctx.fillStyle = '#8a2a1a';
+for (let i = 0; i < 40; i++) {
+ctx.beginPath();
+const a = Math.random() * Math.PI * 2;
+const len = h * 0.25 + Math.random() * h * 0.15;
+ctx.moveTo(Math.cos(a) * w * 0.25, -h*0.05 + Math.sin(a) * h * 0.25);
+ctx.lineTo(Math.cos(a) * w * 0.32 + (Math.random()-0.5)*40, -h*0.15 + Math.sin(a) * h * 0.32 + (Math.random()-0.5)*40);
+ctx.lineTo(Math.cos(a) * w * 0.28, -h*0.1 + Math.sin(a) * h * 0.28);
+ctx.fill();
+}
+
+// Head
+const grd = ctx.createRadialGradient(0, 0, h*0.05, 0, 0, h*0.4);
+grd.addColorStop(0, '#f0d0a8');
+grd.addColorStop(1, '#a07050');
+ctx.fillStyle = grd;
+ctx.beginPath();
+ctx.ellipse(0, 0, w*0.32, h*0.4, 0, 0, Math.PI*2);
+ctx.fill();
+
+// Hair on top
+ctx.fillStyle = '#8a2a1a';
+ctx.beginPath();
+ctx.ellipse(0, -h*0.28, w*0.3, h*0.15, 0, 0, Math.PI*2);
+ctx.fill();
+
+// Cheeks (rosy, doll-like)
+ctx.fillStyle = 'rgba(200, 60, 60, 0.55)';
+ctx.beginPath();
+ctx.arc(-w*0.18, h*0.05, w*0.06, 0, Math.PI*2);
+ctx.arc( w*0.18, h*0.05, w*0.06, 0, Math.PI*2);
+ctx.fill();
+
+// Eyes (large, blue)
+for (const sx of [-1, 1]) {
+// socket shadow
+ctx.fillStyle = '#4a2a1a';
+ctx.beginPath();
+ctx.ellipse(sx*w*0.14, -h*0.06, w*0.1, h*0.11, 0, 0, Math.PI*2);
+ctx.fill();
+// eye white
+ctx.fillStyle = '#e0e0d8';
+ctx.beginPath();
+ctx.ellipse(sx*w*0.14, -h*0.06, w*0.08, h*0.09, 0, 0, Math.PI*2);
+ctx.fill();
+// iris
+ctx.fillStyle = '#1a4a8a';
+ctx.beginPath();
+ctx.arc(sx*w*0.14, -h*0.05, w*0.045, 0, Math.PI*2);
+ctx.fill();
+// pupil
+ctx.fillStyle = '#000';
+ctx.beginPath();
+ctx.arc(sx*w*0.14, -h*0.05, w*0.02, 0, Math.PI*2);
+ctx.fill();
+// highlight
+ctx.fillStyle = '#fff';
+ctx.beginPath();
+ctx.arc(sx*w*0.14 - w*0.015, -h*0.065, w*0.01, 0, Math.PI*2);
+ctx.fill();
+}
+
+// Stitched mouth
+ctx.strokeStyle = '#3a1a0a';
+ctx.lineWidth = 3;
+ctx.beginPath();
+ctx.moveTo(-w*0.15, h*0.2);
+ctx.bezierCurveTo(-w*0.05, h*0.28, w*0.05, h*0.28, w*0.15, h*0.2);
+ctx.stroke();
+// Stitches crossing mouth
+for (let i = 0; i < 10; i++) {
+const x = -w*0.14 + (i/9) * w*0.28;
+ctx.beginPath();
+ctx.moveTo(x - 4, h*0.22);
+ctx.lineTo(x + 4, h*0.24);
+ctx.stroke();
+}
+
+// Stitched seam down face
+ctx.beginPath();
+ctx.moveTo(0, -h*0.28);
+ctx.lineTo(0, -h*0.12);
+ctx.stroke();
+for (let i = 0; i < 4; i++) {
+ctx.beginPath();
+ctx.moveTo(-8, -h*0.26 + i * h*0.04);
+ctx.lineTo(8, -h*0.24 + i * h*0.04);
+ctx.stroke();
+}
+
+// Veins / scars
+ctx.strokeStyle = 'rgba(80, 20, 10, 0.7)';
+ctx.lineWidth = 1.5;
+for (let i = 0; i < 15; i++) {
+const x0 = (Math.random() - 0.5) * w * 0.5;
+const y0 = (Math.random() - 0.5) * h * 0.6;
+ctx.beginPath();
+ctx.moveTo(x0, y0);
+ctx.lineTo(x0 + (Math.random()-0.5) * w * 0.15, y0 + (Math.random()-0.5) * h * 0.15);
+ctx.stroke();
+}
+
+ctx.restore();
+
+// Grain
+const img = ctx.getImageData(0, 0, w, h);
+const p = img.data;
+for (let i = 0; i < p.length; i += 4) {
+const n = (Math.random() - 0.5) * 25;
+p[i] += n; p[i+1] += n; p[i+2] += n;
+}
+ctx.putImageData(img, 0, 0);
+}
+
+function triggerJumpscare(type) {
+jsActive = true;
+jsType = type;
+const dpr = Math.min(window.devicePixelRatio, 2);
+jumpscareCanvas.width = window.innerWidth * dpr;
+jumpscareCanvas.height = window.innerHeight * dpr;
+jsCtx.save();
+jsCtx.scale(dpr, dpr);
+if (type === 'chucky') {
+drawChuckyFace(jsCtx, window.innerWidth, window.innerHeight);
+} else {
+drawZombieFace(jsCtx, window.innerWidth, window.innerHeight);
+}
+jsCtx.restore();
+
+$('jumpscare-overlay').classList.add('show');
+jsEndTime = performance.now() + 950;
+
+// Scare sound
+playScareSound(type);
+}
+
+function playScareSound(type) {
+try {
+const AC = window.AudioContext || window.webkitAudioContext;
+if (!AC) return;
+if (!playScareSound.ctx) playScareSound.ctx = new AC();
+const ctx = playScareSound.ctx;
+if (ctx.state === 'suspended') ctx.resume();
+
+// Noise burst
+const dur = 0.9;
+const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+const data = buf.getChannelData(0);
+for (let i = 0; i < data.length; i++) {
+data[i] = (Math.random() * 2 - 1) * (1 - i/data.length) * 0.9;
+}
+const src = ctx.createBufferSource();
+src.buffer = buf;
+const gain = ctx.createGain();
+gain.gain.value = 0.6;
+const filter = ctx.createBiquadFilter();
+filter.type = 'bandpass';
+filter.frequency.value = type === 'chucky' ? 1800 : 900;
+filter.Q.value = 1.5;
+src.connect(filter).connect(gain).connect(ctx.destination);
+src.start();
+// Tremolo
+const osc = ctx.createOscillator();
+osc.type = 'sawtooth';
+osc.frequency.value = type === 'chucky' ? 440 : 110;
+const og = ctx.createGain();
+og.gain.value = 0.08;
+osc.connect(og).connect(ctx.destination);
+osc.start();
+osc.stop(ctx.currentTime + dur);
+} catch (e) { /* silent */ }
+}
+
+/* ============================ INPUT ============================ */
+const keys = {};
+window.addEventListener('keydown', (e) => {
+keys[e.code] = true;
+if (e.code === 'Escape') togglePause();
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+canvas.addEventListener('mousedown', (e) => {
+if (e.button === 0) {
+if (document.pointerLockElement === canvas) player.peeing = true;
+}
+});
+window.addEventListener('mouseup', (e) => {
+if (e.button === 0) player.peeing = false;
+});
+canvas.addEventListener('click', () => {
+if (G.running && !G.paused && document.pointerLockElement !== canvas) {
+canvas.requestPointerLock();
+}
+});
+
+document.addEventListener('mousemove', (e) => {
+if (document.pointerLockElement === canvas) {
+const sens = 0.0022;
+player.yaw -= e.movementX * sens;
+player.pitch -= e.movementY * sens;
+player.pitch = Math.max(-Math.PI/2 + 0.05, Math.min(Math.PI/2 - 0.05, player.pitch));
+}
+});
+
+window.addEventListener('blur', () => { player.peeing = false; });
+
+/* ============================ PAUSE ============================ */
+function togglePause() {
+if (!G.running) return;
+G.paused = !G.paused;
+const p = $('pause-hint');
+p.style.display = G.paused ? 'block' : 'none';
+p.textContent = 'PAUSED — PRESS ESC TO RESUME';
+if (!G.paused) canvas.requestPointerLock();
+else document.exitPointerLock && document.exitPointerLock();
+}
+
+/* ============================ PLAYER UPDATE ============================ */
+function updatePlayer(dt) {
+// Timers
+if (player.invuln > 0) player.invuln -= dt;
+if (player.hurtFlash > 0) player.hurtFlash -= dt;
+if (player.dodgeCooldown > 0) player.dodgeCooldown -= dt;
+
+// Movement input
+const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+const input = new THREE.Vector3();
+if (keys['KeyW']) input.add(fwd);
+if (keys['KeyS']) input.sub(fwd);
+if (keys['KeyA']) input.sub(right);
+if (keys['KeyD']) input.add(right);
+if (input.lengthSq() > 0) input.normalize();
+
+const sprinting = keys['ShiftLeft'] || keys['ShiftRight'];
+const speed = sprinting ? 8.5 : 4.8;
+
+// Dodge (Space)
+if (keys['Space'] && player.dodgeCooldown <= 0 && input.lengthSq() > 0) {
+player.dodgeCooldown = 1.6;
+player.dodgeTime = 0.35;
+player.dodgeDir.copy(input);
+player.invuln = 0.45;
+}
+
+if (player.dodgeTime > 0) {
+// Dash burst
+const dashSpeed = 22;
+player.vel.copy(player.dodgeDir).multiplyScalar(dashSpeed);
+player.dodgeTime -= dt;
+} else {
+// Smooth velocity toward desired
+const desired = input.clone().multiplyScalar(speed);
+player.vel.x += (desired.x - player.vel.x) * Math.min(1, dt * 14);
+player.vel.z += (desired.z - player.vel.z) * Math.min(1, dt * 14);
+}
+
+// Integrate
+const move = new THREE.Vector3(player.vel.x * dt, 0, player.vel.z * dt);
+player.pos.add(move);
+player.vel.multiplyScalar(Math.max(0, 1 - dt * 8));
+
+// Collision with obstacles (AABB)
+const pr = 0.4;
+for (const o of G.obstacles) {
+if (player.pos.x + pr > o.min.x && player.pos.x - pr < o.max.x &&
+player.pos.z + pr > o.min.z && player.pos.z - pr < o.max.z &&
+player.pos.y - 1.7 < o.max.y) {
+// Push out on nearest axis
+const dxL = (player.pos.x + pr) - o.min.x;
+const dxR = o.max.x - (player.pos.x - pr);
+const dzL = (player.pos.z + pr) - o.min.z;
+const dzR = o.max.z - (player.pos.z - pr);
+const minPen = Math.min(dxL, dxR, dzL, dzR);
+if (minPen === dxL) player.pos.x -= dxL;
+else if (minPen === dxR) player.pos.x += dxR;
+else if (minPen === dzL) player.pos.z -= dzL;
+else player.pos.z += dzR;
+}
+}
+
+// Arena bounds
+const bound = 70;
+player.pos.x = Math.max(-bound, Math.min(bound, player.pos.x));
+player.pos.z = Math.max(-bound, Math.min(bound, player.pos.z));
+
+// Head bob
+const spd = Math.hypot(player.vel.x, player.vel.z);
+player.bob += dt * spd * 1.8;
+const bobY = Math.sin(player.bob) * 0.04 * Math.min(1, spd/4);
+const bobX = Math.cos(player.bob * 0.5) * 0.02 * Math.min(1, spd/4);
+
+// Apply to camera
+camera.position.set(player.pos.x + bobX, player.pos.y + bobY, player.pos.z);
+camera.rotation.y = player.yaw;
+camera.rotation.x = player.pitch;
+
+// Pee mechanic
+if (player.peeing) {
+peeStream.visible = true;
+// animate stream
+peeStream.scale.z = 1 + Math.sin(performance.now() * 0.02) * 0.05;
+if (G.inBoss) {
+// damage handled in updateBoss
+} else {
+player.pee += dt;
+if (player.pee >= player.peeMax) {
+player.pee = player.peeMax;
+player.peeing = false;
+peeStream.visible = false;
+advanceLevel();
+}
+}
+} else {
+peeStream.visible = false;
+// Slow drain when not peeing so the meter isn't just waiting
+if (!G.inBoss) player.pee = Math.max(0, player.pee - dt * 0.35);
+}
+
+updateHUD();
+}
+
+/* ============================ ENEMY SPAWNING ============================ */
+function updateSpawning(dt) {
+if (G.inBoss) return;
+G.spawnTimer -= dt;
+if (G.spawnTimer <= 0 && G.enemies.length < LEVELS[G.level].enemies + 2) {
+G.spawnTimer = 8 + Math.random() * 8;
+const kinds = ['pillbug', 'tapeworm', 'centipede'];
+const k = kinds[Math.floor(Math.random() * 3)];
+const ang = Math.random() * Math.PI * 2;
+const rad = 28 + Math.random() * 15;
+spawnEnemy(k, new THREE.Vector3(
+player.pos.x + Math.cos(ang) * rad,
+0,
+player.pos.z + Math.sin(ang) * rad
+));
+}
+// Rare heal spawns
+if (Math.random() < dt * 0.02 && G.heals.length < 2) {
+spawnHeal();
+}
+}
+
+/* ============================ JUMPSCARE TIMER ============================ */
+const JS = {
+nextZombieTime: 40, // first at 40s
+chuckyTime: null,
+chuckyDone: false,
+firstDone: false,
+};
+
+function updateJumpscares(nowSec) {
+if (jsActive) {
+if (performance.now() > jsEndTime) {
+jsActive = false;
+$('jumpscare-overlay').classList.remove('show');
+}
+return;
+}
+// Regular zombie every 40s
+if (nowSec >= JS.nextZombieTime) {
+triggerJumpscare('zombie');
+JS.nextZombieTime += 40;
+if (!JS.firstDone) {
+JS.firstDone = true;
+JS.chuckyTime = nowSec + 10;
+}
+}
+// One-time chucky 10s after first
+if (JS.chuckyTime && !JS.chuckyDone && nowSec >= JS.chuckyTime) {
+triggerJumpscare('chucky');
+JS.chuckyDone = true;
+}
+}
+
+/* ============================ DEATH / WIN ============================ */
+function die() {
+if (G.playerDead) return;
+G.playerDead = true;
+G.running = false;
+document.exitPointerLock && document.exitPointerLock();
+const es = $('end-screen');
+$('end-title').textContent = 'YOU DIED';
+$('end-title').style.color = '#8a1a1a';
+$('end-sub').textContent = `You fell in ${LEVELS[G.level].name}. The zone claims another.`;
+es.classList.remove('hidden');
+}
+
+function winGame() {
+if (G.won) return;
+G.won = true;
+G.running = false;
+document.exitPointerLock && document.exitPointerLock();
+const es = $('end-screen');
+$('end-title').textContent = 'YOU REACHED THE METRO';
+$('end-title').style.color = '#ccaa44';
+$('end-sub').textContent = 'The Mother is dead. Somewhere above, dawn breaks.';
+es.classList.remove('hidden');
+}
+
+/* ============================ START / RESTART ============================ */
+function startGame() {
+// Reset all state
+clearLevel();
+clearAtmosphere();
+if (G.boss) { scene.remove(G.boss); G.boss = null; }
+
+G.running = true;
+G.paused = false;
+G.playerDead = false;
+G.won = false;
+G.elapsed = 0;
+G.spawnTimer = 3;
+G.inBoss = false;
+
+player.hp = player.maxHp;
+player.pee = 0;
+player.vel.set(0, 0, 0);
+player.yaw = 0;
+player.pitch = 0;
+player.peeing = false;
+player.invuln = 1.0;
+
+JS.nextZombieTime = 40;
+JS.chuckyTime = null;
+JS.chuckyDone = false;
+JS.firstDone = false;
+
+$('start-screen').classList.add('hidden');
+$('end-screen').classList.add('hidden');
+
+loadLevel(0);
+
+// Start background ambient drone
+startAmbient();
+
+canvas.requestPointerLock();
+lastTime = performance.now();
+}
+
+$('start-btn').addEventListener('click', startGame);
+$('restart-btn').addEventListener('click', startGame);
+
+/* ============================ AMBIENT AUDIO ============================ */
+let ambientNodes = null;
+function startAmbient() {
+if (ambientNodes) return;
+try {
+const AC = window.AudioContext || window.webkitAudioContext;
+if (!AC) return;
+const ctx = new AC();
+const osc = ctx.createOscillator();
+osc.type = 'sine';
+osc.frequency.value = 55;
+const osc2 = ctx.createOscillator();
+osc2.type = 'sine';
+osc2.frequency.value = 82.5;
+const gain = ctx.createGain();
+gain.gain.value = 0.04;
+const lp = ctx.createBiquadFilter();
+lp.type = 'lowpass';
+lp.frequency.value = 300;
+osc.connect(lp);
+osc2.connect(lp);
+lp.connect(gain).connect(ctx.destination);
+osc.start();
+osc2.start();
+ambientNodes = { ctx, osc, osc2, gain };
+} catch (e) { /* silent */ }
+}
+
+/* ============================ MAIN LOOP ============================ */
+let lastTime = performance.now();
+let elapsedSec = 0;
+
+function animate(now) {
+requestAnimationFrame(animate);
+const dt = Math.min(0.05, (now - lastTime) / 1000);
+lastTime = now;
+
+if (G.running && !G.paused) {
+elapsedSec += dt;
+updatePlayer(dt);
+updateEnemies(dt);
+updateHeals(dt);
+updateSpawning(dt);
+if (G.inBoss) updateBoss(dt);
+updateJumpscares(elapsedSec);
+
+// Flicker ambient
+if (G._sun) {
+const flicker = 1 + Math.sin(now * 0.002) * 0.03 + (Math.random() - 0.5) * 0.02;
+G._sun.intensity = G._sun.userData.baseIntensity
+? G._sun.userData.baseIntensity * flicker
+: G._sun.intensity;
+}
+}
+
+renderer.render(scene, camera);
+}
+
+// Prevent default browser right-click menu so gameplay is smooth
+window.addEventListener('contextmenu', e => e.preventDefault());
+
+// Kick off the loop
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
